@@ -19,6 +19,15 @@ export const dataSourceCatalog: DataSourceCatalogItem[] = [
     status: "enabled"
   },
   {
+    id: "citizenwiki-cn",
+    name: "CitizenWiki CN",
+    purpose: ["chinese_wiki", "localized_reference", "star_wiki_cross_link"],
+    docsUrl: "https://citizenwiki.cn/",
+    requiresToken: false,
+    recommendedCadence: "linked live page",
+    status: "enabled"
+  },
+  {
     id: "uex",
     name: "UEX Corp API",
     purpose: ["commodities", "commodity_prices", "trade_terminals", "trade_routes"],

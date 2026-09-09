@@ -670,6 +670,18 @@ button:focus-visible {
   font-weight: 800;
 }
 
+.result-footnote a,
+.cn-wiki-link {
+  color: var(--teal);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.result-footnote a:hover,
+.cn-wiki-link:hover {
+  color: var(--gold);
+}
+
 .source-footnotes {
   display: grid;
   gap: 8px;

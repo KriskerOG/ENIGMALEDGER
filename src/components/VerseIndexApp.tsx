@@ -15,6 +15,7 @@ import type {
 
 const DEFAULT_TRADE_ORIGIN = "Seraphim Station";
 const ROUTE_RESULT_LIMIT = 80;
+const CITIZENWIKI_SEARCH_URL = "https://citizenwiki.cn/index.php";
 
 const typeOptions: Array<{ value: EntityTypeFilter; label: string }> = [
   { value: "all", label: "全部" },
@@ -146,6 +147,7 @@ interface SourceFootnote {
   key: string;
   sourceName: string;
   sourceUrl?: string;
+  citizenWikiUrl?: string;
   gameVersion?: string;
   sourceUpdatedAt?: string;
   freshness: string;
@@ -189,6 +191,26 @@ function formatSearchSourceLabel(source: string): string {
     .join(" + ") || "external index ready";
 }
 
+function buildCitizenWikiSearchUrl(name: string | undefined): string | undefined {
+  const query = String(name ?? "").trim();
+
+  if (!query) {
+    return undefined;
+  }
+
+  return `${CITIZENWIKI_SEARCH_URL}?search=${encodeURIComponent(query)}`;
+}
+
+function hasStarWikiSource(sourceName: string | undefined, sourceUrl?: string): boolean {
+  const sourceText = `${sourceName ?? ""} ${sourceUrl ?? ""}`.toLowerCase();
+
+  return (
+    sourceText.includes("star citizen wiki") ||
+    sourceText.includes("starcitizen.tools") ||
+    sourceText.includes("star-citizen.wiki")
+  );
+}
+
 function buildSourceKey(record: SearchRecord): string {
   return [
     record.source.sourceName,
@@ -210,9 +232,18 @@ function getRecordCategoryLabel(record: SearchRecord): string {
 }
 
 function SourceBlock({ record }: { record: SearchRecord }) {
+  const citizenWikiUrl = hasStarWikiSource(record.source.sourceName, record.source.sourceUrl)
+    ? buildCitizenWikiSearchUrl(record.name)
+    : undefined;
+
   return (
     <div className="source-row">
       <span>{record.source.sourceName}</span>
+      {citizenWikiUrl ? (
+        <a href={citizenWikiUrl} rel="noreferrer" target="_blank">
+          中文百科
+        </a>
+      ) : null}
       {record.source.gameVersion ? <span>{record.source.gameVersion}</span> : null}
       {record.source.sourceUpdatedAt ? <span>Updated {record.source.sourceUpdatedAt}</span> : null}
       <span className={`freshness ${record.source.freshness}`}>{record.source.freshness}</span>
@@ -1330,6 +1361,9 @@ export function VerseIndexApp() {
           key,
           sourceName: record.source.sourceName,
           sourceUrl: record.source.sourceUrl,
+          citizenWikiUrl: hasStarWikiSource(record.source.sourceName, record.source.sourceUrl)
+            ? buildCitizenWikiSearchUrl(record.name)
+            : undefined,
           gameVersion: record.source.gameVersion,
           sourceUpdatedAt: record.source.sourceUpdatedAt,
           freshness: record.source.freshness
@@ -1476,6 +1510,9 @@ export function VerseIndexApp() {
                   records.map((record) => {
                     const externalRecord = isExternalRecord(record);
                     const canSetShip = record.type === "ship";
+                    const citizenWikiUrl = hasStarWikiSource(record.source.sourceName, record.source.sourceUrl)
+                      ? buildCitizenWikiSearchUrl(record.name)
+                      : undefined;
 
                     return (
                       <article
@@ -1496,6 +1533,11 @@ export function VerseIndexApp() {
                           <div className="result-footnote">
                             <sup>[{sourceLedger.byRecordId.get(record.id) ?? 0}]</sup>
                             <span>{record.source.sourceName}</span>
+                            {citizenWikiUrl ? (
+                              <a href={citizenWikiUrl} rel="noreferrer" target="_blank">
+                                中文百科
+                              </a>
+                            ) : null}
                           </div>
                         </div>
                         <div className="result-actions">
@@ -1550,6 +1592,11 @@ export function VerseIndexApp() {
                         <strong>{source.sourceName}</strong>
                       )}
                       <em>{formatSourceDetail(source)}</em>
+                      {source.citizenWikiUrl ? (
+                        <a className="cn-wiki-link" href={source.citizenWikiUrl} rel="noreferrer" target="_blank">
+                          中文百科
+                        </a>
+                      ) : null}
                     </li>
                   ))}
                 </ol>
