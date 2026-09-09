@@ -229,7 +229,7 @@ function DetailPanel({ record }: { record: SearchRecord | undefined }) {
     return (
       <aside className="detail-panel">
         <p className="eyebrow">SELECTED RECORD</p>
-        <h2>ENIGMA Ledger</h2>
+        <h2>ENIGMA Verse Index</h2>
         <p>选择一条记录查看来源、版本、新鲜度和关键属性。</p>
       </aside>
     );
@@ -1397,7 +1397,7 @@ export function VerseIndexApp() {
             <section className="index-panel">
               <div className="heading-row">
                 <div>
-                  <p className="eyebrow">THE LEDGER</p>
+                  <p className="eyebrow">VERSE INDEX</p>
                   <h1>查询万物</h1>
                 </div>
                 <button
