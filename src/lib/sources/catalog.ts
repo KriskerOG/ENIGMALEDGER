@@ -1,0 +1,48 @@
+export interface DataSourceCatalogItem {
+  id: string;
+  name: string;
+  purpose: string[];
+  docsUrl: string;
+  requiresToken: boolean;
+  recommendedCadence: string;
+  status: "planned" | "adapter_ready" | "enabled";
+}
+
+export const dataSourceCatalog: DataSourceCatalogItem[] = [
+  {
+    id: "star-citizen-wiki",
+    name: "Star Citizen Wiki API",
+    purpose: ["search_database", "cargo_ship_catalog", "ships", "vehicles", "components", "items", "locations", "manufacturers"],
+    docsUrl: "https://docs.star-citizen.wiki/",
+    requiresToken: false,
+    recommendedCadence: "daily",
+    status: "enabled"
+  },
+  {
+    id: "uex",
+    name: "UEX Corp API",
+    purpose: ["commodities", "commodity_prices", "trade_terminals", "trade_routes"],
+    docsUrl: "https://uexcorp.space/api/documentation/",
+    requiresToken: false,
+    recommendedCadence: "15m-60m for trade data",
+    status: "enabled"
+  },
+  {
+    id: "sc-trade-tools",
+    name: "SC Trade Tools API",
+    purpose: ["commodities", "shops", "terminals", "trade cross-checking"],
+    docsUrl: "https://sc-trade.tools/swagger-ui.html",
+    requiresToken: false,
+    recommendedCadence: "daily or cross-check only",
+    status: "planned"
+  },
+  {
+    id: "verseguide",
+    name: "VerseGuide",
+    purpose: ["starmap", "locations", "surface_navigation", "route_planning"],
+    docsUrl: "https://verseguide.com/",
+    requiresToken: false,
+    recommendedCadence: "embedded live page",
+    status: "enabled"
+  }
+];

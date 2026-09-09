@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ENIGMA Verse Index</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="./index.html" aria-label="ENIGMA Verse Index">
+          <span class="brand-mark">E</span>
+          <span>
+            <strong>ENIGMA</strong>
+            <small>Verse Index</small>
+          </span>
+        </a>
+
+        <nav class="nav-tabs" aria-label="Primary">
+          <button class="nav-tab active" type="button" data-panel="index">索引</button>
+          <button class="nav-tab" type="button" data-panel="trade">贸易</button>
+          <button class="nav-tab" type="button" data-panel="network">网络</button>
+        </nav>
+
+        <div class="top-status" title="External source metadata placeholder">
+          <span class="status-dot"></span>
+          <span>Alpha 3.24.x</span>
+        </div>
+      </header>
+
+      <main>
+        <section class="panel-section active-panel" id="panel-index">
+          <div class="search-layout">
+            <section class="search-column" aria-labelledby="search-title">
+              <div class="section-heading">
+                <p>THE LEDGER</p>
+                <h1 id="search-title">查询万物</h1>
+              </div>
+
+              <div class="search-controls">
+                <label class="search-field" for="search-input">
+                  <span>Search</span>
+                  <input
+                    id="search-input"
+                    type="search"
+                    autocomplete="off"
+                    placeholder="舰船、装备、地点、商品、终端"
+                  />
+                </label>
+
+                <label for="type-filter">
+                  <span>Type</span>
+                  <select id="type-filter">
+                    <option value="all">全部</option>
+                    <option value="ship">舰船</option>
+                    <option value="component">组件</option>
+                    <option value="item">装备</option>
+                    <option value="commodity">商品</option>
+                    <option value="location">地点</option>
+                    <option value="shop">商店</option>
+                  </select>
+                </label>
+
+                <label for="freshness-filter">
+                  <span>Freshness</span>
+                  <select id="freshness-filter">
+                    <option value="all">全部</option>
+                    <option value="fresh">Fresh</option>
+                    <option value="recent">Recent</option>
+                    <option value="stale">Stale</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="metric-strip" aria-label="Index metrics">
+                <div>
+                  <strong id="metric-records">0</strong>
+                  <span>Records</span>
+                </div>
+                <div>
+                  <strong id="metric-sources">0</strong>
+                  <span>Sources</span>
+                </div>
+                <div>
+                  <strong id="metric-fresh">0</strong>
+                  <span>Fresh</span>
+                </div>
+              </div>
+
+              <div class="results-toolbar">
+                <span id="result-count">0 results</span>
+                <button id="clear-search" type="button">清空</button>
+              </div>
+
+              <div class="result-list" id="result-list" aria-live="polite"></div>
+            </section>
+
+            <aside class="detail-column" aria-labelledby="detail-title">
+              <canvas id="verse-map" width="720" height="380" aria-label="Stanton network map"></canvas>
+              <article class="detail-panel" id="detail-panel">
+                <p class="eyebrow">SELECTED RECORD</p>
+                <h2 id="detail-title">ENIGMA Ledger</h2>
+                <p class="detail-summary">
+                  Trust is our currency. Every record should show source, version, and freshness before it is trusted.
+                </p>
+              </article>
+            </aside>
+          </div>
+        </section>
+
+        <section class="panel-section" id="panel-trade">
+          <div class="trade-layout">
+            <section class="trade-form" aria-labelledby="trade-title">
+              <div class="section-heading">
+                <p>COMMERCE</p>
+                <h1 id="trade-title">航线收益</h1>
+              </div>
+
+              <div class="trade-inputs">
+                <label for="route-origin">
+                  <span>Origin</span>
+                  <select id="route-origin">
+                    <option value="Seraphim Station">Seraphim Station</option>
+                    <option value="Area18">Area18</option>
+                    <option value="Lorville">Lorville</option>
+                    <option value="New Babbage">New Babbage</option>
+                  </select>
+                </label>
+                <label for="cargo-capacity">
+                  <span>Cargo SCU</span>
+                  <input id="cargo-capacity" type="number" min="1" max="10000" value="696" />
+                </label>
+                <label for="route-budget">
+                  <span>Budget UEC</span>
+                  <input id="route-budget" type="number" min="1000" step="1000" value="750000" />
+                </label>
+              </div>
+
+              <div class="route-summary" id="route-summary"></div>
+            </section>
+
+            <section class="route-list" id="route-list" aria-live="polite"></section>
+          </div>
+        </section>
+
+        <section class="panel-section" id="panel-network">
+          <div class="network-layout">
+            <section class="manifest-panel">
+              <p class="eyebrow">ENIGMA ORGANIZATION</p>
+              <h1>TRUST · TRADE · NEUTRALITY · FREEDOM</h1>
+              <p>
+                ENIGMA exists to make independent pilots, traders, miners, haulers, escorts, and explorers able to
+                cooperate through contracts, reputation, and neutral commerce.
+              </p>
+            </section>
+
+            <section class="charter-grid" aria-label="Charter principles">
+              <article>
+                <span>I</span>
+                <h2>Honor The Contract</h2>
+                <p>A deal accepted through the network must be fulfilled under the confirmed terms.</p>
+              </article>
+              <article>
+                <span>II</span>
+                <h2>Protect The Network</h2>
+                <p>Neutral trade requires the ability to defend ships, cargo, routes, and trusted partners.</p>
+              </article>
+              <article>
+                <span>III</span>
+                <h2>Never Betray The Ledger</h2>
+                <p>Reputation is the organization's core asset and must outlast any single job, ship, or balance.</p>
+              </article>
+            </section>
+          </div>
+        </section>
+      </main>
+
+      <footer class="site-footer">
+        <span>ENIGMA Verse Index is an unofficial Star Citizen community tool.</span>
+        <span>Not affiliated with Cloud Imperium Games, Roberts Space Industries, or Star Citizen.</span>
+      </footer>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
+

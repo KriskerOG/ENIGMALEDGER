@@ -1,0 +1,13 @@
+.next/
+.openai/
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+*.log
+tsconfig.tsbuildinfo
+.env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
