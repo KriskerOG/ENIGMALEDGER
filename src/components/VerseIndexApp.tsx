@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { mockRecords } from "@/lib/mock-data";
-import { searchRecords } from "@/lib/search";
 import { calculateTradeRoutes } from "@/lib/trade";
 import { dataSourceCatalog, type DataSourceCatalogItem } from "@/lib/sources/catalog";
 import type {
@@ -152,8 +151,42 @@ interface SourceFootnote {
   freshness: string;
 }
 
+type RouteRecommendationKind = "profit" | "hot" | "stable";
+
+interface RouteRecommendation {
+  kind: RouteRecommendationKind;
+  title: string;
+  badge: string;
+  route?: CalculatedTradeRoute;
+  score: number;
+  scoreLabel: string;
+  reason: string;
+}
+
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+function formatSearchSourceLabel(source: string): string {
+  if (!source || source === "none") {
+    return "external index ready";
+  }
+
+  return source
+    .split("+")
+    .filter((provider) => provider !== "local")
+    .map((provider) => {
+      if (provider === "wiki") {
+        return "Star Citizen Wiki API";
+      }
+
+      if (provider === "database") {
+        return "database";
+      }
+
+      return provider;
+    })
+    .join(" + ") || "external index ready";
 }
 
 function buildSourceKey(record: SearchRecord): string {
@@ -557,6 +590,258 @@ function formatRoutePath(route: CalculatedTradeRoute): string {
   return `${route.buyTerminal} -> ${route.sellTerminal}`;
 }
 
+function getRouteLegCount(route: CalculatedTradeRoute): number {
+  return route.legs?.length ?? 1;
+}
+
+function getRiskScore(route: CalculatedTradeRoute): number {
+  if (route.risk === "Low") {
+    return 18;
+  }
+
+  if (route.risk === "Medium") {
+    return 8;
+  }
+
+  return -18;
+}
+
+function getFreshnessScore(route: CalculatedTradeRoute): number {
+  if (route.source.freshness === "fresh") {
+    return 8;
+  }
+
+  if (route.source.freshness === "recent") {
+    return 5;
+  }
+
+  if (route.source.freshness === "stale") {
+    return 1;
+  }
+
+  return 0;
+}
+
+function getStationScore(route: CalculatedTradeRoute): number {
+  if (route.originIsSpaceStation && route.destinationIsSpaceStation) {
+    return 8;
+  }
+
+  if (route.originIsGround || route.destinationIsGround) {
+    return 3;
+  }
+
+  return 4;
+}
+
+function getSupplyCoverage(route: CalculatedTradeRoute, cargoScu: number): number {
+  if (typeof route.availableScu !== "number" || !Number.isFinite(route.availableScu)) {
+    return 0.75;
+  }
+
+  return Math.min(1.5, route.availableScu / Math.max(1, cargoScu));
+}
+
+function getRiskLabel(risk: CalculatedTradeRoute["risk"]): string {
+  if (risk === "Low") {
+    return "低风险";
+  }
+
+  if (risk === "Medium") {
+    return "中风险";
+  }
+
+  return "高风险";
+}
+
+function scoreStableRoute(route: CalculatedTradeRoute, cargoScu: number): number {
+  const margin = typeof route.marginPercent === "number" ? route.marginPercent : 0;
+  const supplyScore = Math.min(16, getSupplyCoverage(route, cargoScu) * 10);
+  const containerScore = route.containerSizes?.length ? 3 : 0;
+  const legPenalty = Math.max(0, getRouteLegCount(route) - 1) * 0.75;
+
+  return getRiskScore(route) + getFreshnessScore(route) + getStationScore(route) + supplyScore + Math.min(10, margin / 2) + containerScore - legPenalty;
+}
+
+function scoreHotRoute(route: CalculatedTradeRoute, cargoScu: number): number {
+  const routeScore = typeof route.score === "number" ? route.score / 10 : 0;
+  const margin = typeof route.marginPercent === "number" ? route.marginPercent : 0;
+  const cargoFit = Math.min(8, route.purchasableScu / Math.max(1, cargoScu) * 8);
+
+  return routeScore + Math.log10(Math.max(1, route.totalProfit)) * 6 + margin * 0.8 + getFreshnessScore(route) * 2 + cargoFit;
+}
+
+function pickRoute(
+  routes: CalculatedTradeRoute[],
+  usedRouteIds: Set<string>,
+  scoreRoute: (route: CalculatedTradeRoute) => number
+): { route?: CalculatedTradeRoute; score: number } {
+  const scored = routes
+    .map((route) => ({ route, score: scoreRoute(route) }))
+    .sort((left, right) => right.score - left.score);
+  const next = scored.find((item) => !usedRouteIds.has(item.route.id)) ?? scored[0];
+
+  if (!next) {
+    return { score: 0 };
+  }
+
+  usedRouteIds.add(next.route.id);
+
+  return next;
+}
+
+function buildRecommendationReason(kind: RouteRecommendationKind, route: CalculatedTradeRoute, cargoScu: number): string {
+  const supplyCoverage = getSupplyCoverage(route, cargoScu);
+  const stationMode = getRouteStationMode(route);
+  const containerText = route.containerSizes?.length ? `${formatContainerSizes(route)} 箱型` : "箱型未公开";
+
+  if (kind === "stable") {
+    return `${getRiskLabel(route.risk)}，${stationMode}，${supplyCoverage >= 1 ? "供应量够装满当前货仓" : "按可买货量部分装载"}，${containerText}。`;
+  }
+
+  if (kind === "hot") {
+    return `综合 UEX 评分、利润密度、数据新鲜度和 ${formatNumber(cargoScu)} SCU 货仓匹配度。`;
+  }
+
+  return `当前筛选下预计总利润最高，按 ${formatNumber(route.purchasableScu)} SCU 装载计算。`;
+}
+
+function buildRouteRecommendations(routes: CalculatedTradeRoute[], cargoScu: number): RouteRecommendation[] {
+  const usedRouteIds = new Set<string>();
+  const stable = pickRoute(routes, usedRouteIds, (route) => scoreStableRoute(route, cargoScu));
+  const hot = pickRoute(routes, usedRouteIds, (route) => scoreHotRoute(route, cargoScu));
+  const profit = pickRoute(routes, usedRouteIds, (route) => route.totalProfit);
+  const recommendations: Array<Omit<RouteRecommendation, "reason">> = [
+    {
+      kind: "stable",
+      title: "稳定挣钱",
+      badge: "LOW RISK",
+      route: stable.route,
+      score: stable.score,
+      scoreLabel: stable.route ? getRiskLabel(stable.route.risk) : "暂无"
+    },
+    {
+      kind: "hot",
+      title: "热门优选",
+      badge: "HOT PICK",
+      route: hot.route,
+      score: hot.score,
+      scoreLabel: hot.route ? "综合优选" : "暂无"
+    },
+    {
+      kind: "profit",
+      title: "最高利润",
+      badge: "MAX PROFIT",
+      route: profit.route,
+      score: profit.score,
+      scoreLabel: profit.route ? `${formatNumber(profit.route.totalProfit)} UEC` : "暂无"
+    }
+  ];
+
+  return recommendations.map((recommendation) => ({
+    ...recommendation,
+    reason: recommendation.route
+      ? buildRecommendationReason(recommendation.kind, recommendation.route, cargoScu)
+      : "当前飞船、预算、起点、终点、运输模式和箱型限制下暂无可盈利路线。"
+  }));
+}
+
+function NewPlayerRouteGuide({
+  budgetUec,
+  cargoScu,
+  routeMode,
+  routePlanMode,
+  routeSource,
+  routes,
+  selectedShip
+}: {
+  budgetUec: number;
+  cargoScu: number;
+  routeMode: TradeRouteMode;
+  routePlanMode: "direct" | "loop";
+  routeSource: string;
+  routes: CalculatedTradeRoute[];
+  selectedShip: CargoShipRecord | undefined;
+}) {
+  const recommendations = buildRouteRecommendations(routes, cargoScu);
+
+  return (
+    <section className="new-player-guide" aria-label="New player route recommendations">
+      <div className="recommendation-head">
+        <div>
+          <p className="eyebrow">NEW PILOT ROUTES</p>
+          <h2>新玩家路线推荐</h2>
+        </div>
+        <div className="recommendation-context">
+          <span>{selectedShip?.name ?? "No ship"}</span>
+          <span>{formatNumber(cargoScu)} SCU</span>
+          <span>{formatNumber(budgetUec)} UEC</span>
+          <span>{routePlanMode === "loop" ? "Triangle / Loop" : "Direct"}</span>
+          <span>{getRouteModeLabel(routeMode)}</span>
+        </div>
+      </div>
+
+      <div className="new-player-card-grid">
+        {recommendations.map((recommendation) => {
+          const route = recommendation.route;
+
+          return (
+            <article className={`new-player-card ${recommendation.kind}`} key={recommendation.kind}>
+              <header>
+                <div>
+                  <span className="recommendation-kicker">{recommendation.badge}</span>
+                  <h3>{recommendation.title}</h3>
+                </div>
+                <strong>{recommendation.scoreLabel}</strong>
+              </header>
+
+              {route ? (
+                <>
+                  <p className="recommendation-path">{formatRoutePath(route)}</p>
+                  <div className="recommendation-commodity">{route.commodity}</div>
+                  <div className="recommendation-stats">
+                    <div>
+                      <span>Profit</span>
+                      <strong>{formatNumber(route.totalProfit)} UEC</strong>
+                    </div>
+                    <div>
+                      <span>Load</span>
+                      <strong>{formatNumber(route.purchasableScu)} SCU</strong>
+                    </div>
+                    <div>
+                      <span>ROI</span>
+                      <strong>{typeof route.marginPercent === "number" ? `${route.marginPercent.toFixed(1)}%` : "N/A"}</strong>
+                    </div>
+                  </div>
+                  <p className="recommendation-reason">{recommendation.reason}</p>
+                  <div className="source-row recommendation-source">
+                    {route.source.sourceUrl ? (
+                      <a href={route.source.sourceUrl} rel="noreferrer" target="_blank">
+                        {route.source.sourceName}
+                      </a>
+                    ) : (
+                      <span>{route.source.sourceName}</span>
+                    )}
+                    <span>{getRouteKindLabel(route)}</span>
+                    <span>{route.source.freshness}</span>
+                  </div>
+                </>
+              ) : (
+                <p className="recommendation-reason">{recommendation.reason}</p>
+              )}
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="recommendation-footnote">
+        <span>Source {routeSource}</span>
+        <span>稳定挣钱优先低风险、供应量、站点类型、数据新鲜度和公开箱型。</span>
+      </div>
+    </section>
+  );
+}
+
 function PilotShipPanel({
   budgetUec,
   cargoScu,
@@ -599,7 +884,10 @@ function PilotShipPanel({
   const shipCargoScu = getShipCargoScu(selectedShip);
   const role = getShipRole(selectedShip);
   const tasks = buildShipTasks(selectedShip, cargoScu);
-  const recommendedRoutes = routes.slice(0, 3);
+  const recommendedRoutes = buildRouteRecommendations(routes, cargoScu)
+    .map((recommendation) => recommendation.route)
+    .filter((route): route is CalculatedTradeRoute => Boolean(route))
+    .slice(0, 3);
   const shipGroups = groupShipsByManufacturer(shipOptions);
 
   return (
@@ -765,10 +1053,10 @@ export function VerseIndexApp() {
   const [query, setQuery] = useState("");
   const [type, setType] = useState<EntityTypeFilter>("all");
   const [freshness, setFreshness] = useState<FreshnessFilter>("all");
-  const [selectedId, setSelectedId] = useState(mockRecords[0]?.id);
+  const [selectedId, setSelectedId] = useState<string | undefined>();
   const [selectedShipId, setSelectedShipId] = useState("ship-c2-hercules");
-  const [records, setRecords] = useState<SearchRecord[]>(mockRecords);
-  const [recordSource, setRecordSource] = useState("mock");
+  const [records, setRecords] = useState<SearchRecord[]>([]);
+  const [recordSource, setRecordSource] = useState("wiki");
   const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordsError, setRecordsError] = useState<string>();
   const [cargoScu, setCargoScu] = useState(696);
@@ -780,7 +1068,7 @@ export function VerseIndexApp() {
   const [routeRefreshNonce, setRouteRefreshNonce] = useState(0);
   const routeRefreshConsumedRef = useRef(0);
   const [shipCatalog, setShipCatalog] = useState<CargoShipRecord[]>([]);
-  const [shipCatalogSource, setShipCatalogSource] = useState("local");
+  const [shipCatalogSource, setShipCatalogSource] = useState("external catalog");
   const [shipsLoading, setShipsLoading] = useState(false);
   const [shipsError, setShipsError] = useState<string>();
   const [routeUpstreamCount, setRouteUpstreamCount] = useState<number>();
@@ -820,7 +1108,7 @@ export function VerseIndexApp() {
           }
 
           setRecords(payload.data);
-          setRecordSource(payload.meta.source);
+          setRecordSource(formatSearchSourceLabel(payload.meta.source));
           setSelectedId((current) => payload.data.find((record) => record.id === current)?.id ?? payload.data[0]?.id);
         })
         .catch(() => {
@@ -828,9 +1116,9 @@ export function VerseIndexApp() {
             return;
           }
 
-          setRecords(searchRecords({ query, type, freshness, limit: 50 }, mockRecords));
-          setRecordSource("local fallback");
-          setRecordsError("Search API unavailable; using ENIGMA local index.");
+          setRecords([]);
+          setRecordSource("offline");
+          setRecordsError("Search API unavailable; external index could not be reached.");
         })
         .finally(() => {
           if (active) {
@@ -873,7 +1161,7 @@ export function VerseIndexApp() {
         }
 
         setShipCatalog([]);
-        setShipCatalogSource("local fallback");
+        setShipCatalogSource("offline ship fallback");
         setShipsError("飞船目录暂不可用，已使用本地可识别飞船。");
       })
       .finally(() => {
@@ -1405,6 +1693,16 @@ export function VerseIndexApp() {
               </div>
 
               <StatusLine loading={routesLoading} source={routeSource} error={routesError} />
+
+              <NewPlayerRouteGuide
+                budgetUec={budgetUec}
+                cargoScu={cargoScu}
+                routeMode={routeMode}
+                routePlanMode={routePlanMode}
+                routeSource={routeSource}
+                routes={routes}
+                selectedShip={selectedShip}
+              />
 
               <div className="metric-strip planner-metrics">
                 <div>

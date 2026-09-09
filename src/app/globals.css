@@ -418,6 +418,151 @@ button:focus-visible {
   font-size: 12px;
 }
 
+.new-player-guide {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.recommendation-head {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.recommendation-head h2 {
+  margin: 0;
+  font-size: 24px;
+  line-height: 1.12;
+}
+
+.recommendation-context,
+.recommendation-footnote {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.recommendation-context span,
+.recommendation-footnote span,
+.recommendation-kicker {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--soft);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 0 9px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.new-player-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.new-player-card {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+  padding: 14px;
+}
+
+.new-player-card.stable {
+  border-color: rgba(122, 198, 106, 0.3);
+}
+
+.new-player-card.hot {
+  border-color: rgba(214, 168, 79, 0.34);
+}
+
+.new-player-card.profit {
+  border-color: rgba(60, 200, 180, 0.28);
+}
+
+.new-player-card header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.new-player-card h3 {
+  margin: 6px 0 0;
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.new-player-card header strong {
+  color: var(--green);
+  font-size: 13px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.recommendation-path,
+.recommendation-reason {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.recommendation-commodity {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.recommendation-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.recommendation-stats div {
+  min-height: 58px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.14);
+  padding: 9px;
+}
+
+.recommendation-stats span,
+.recommendation-stats strong {
+  display: block;
+}
+
+.recommendation-stats span {
+  color: var(--soft);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.recommendation-stats strong {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+}
+
+.recommendation-source {
+  margin-top: 0;
+}
+
+.recommendation-footnote {
+  justify-content: flex-start;
+}
+
 .result-list,
 .route-list,
 .side-stack {
@@ -1386,6 +1531,7 @@ button:focus-visible {
   }
 
   .heading-row,
+  .recommendation-head,
   .planner-toolbar,
   .inline-starmap-panel header,
   .starmap-modal header,
@@ -1403,11 +1549,18 @@ button:focus-visible {
   .pilot-inputs,
   .pilot-metrics,
   .planner-row,
+  .new-player-card-grid,
+  .recommendation-stats,
   .route-detail-grid,
   .route-leg-list div,
   .source-grid,
   .charter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .recommendation-context,
+  .recommendation-footnote {
+    justify-content: flex-start;
   }
 
   .result-card {

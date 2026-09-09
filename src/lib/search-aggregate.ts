@@ -85,9 +85,7 @@ export async function aggregateSearch(input: AggregateSearchInput): Promise<Sear
     }
   }
 
-  const hasDatabaseRecords = providerResults.some((result) => result.provider === "database" && result.records.length);
-
-  if ((input.source === "all" && !hasDatabaseRecords) || input.source === "local") {
+  if (input.source === "local") {
     providerResults.push({
       provider: "local",
       records: searchRecords(input, mockRecords)
