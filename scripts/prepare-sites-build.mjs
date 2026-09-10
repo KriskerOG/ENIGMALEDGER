@@ -68,11 +68,14 @@ const { dataSourceCatalog } = loadTsExports("src/lib/sources/catalog.ts", ["data
 const { localizationAliases } = loadTsExports("src/lib/generated/localization-aliases.ts", ["localizationAliases"]);
 const { cargoShipStats } = loadTsExports("src/lib/generated/cargo-ship-stats.ts", ["cargoShipStats"]);
 const { uexTradeLocations } = loadTsExports("src/lib/generated/uex-trade-locations.ts", ["uexTradeLocations"]);
+const workerLocalizationAliases = localizationAliases.filter((alias) =>
+  ["paratranz_terms", "cn_search_v1", "cn_pinyin_v1"].includes(alias.packageId)
+);
 const workerData = {
   searchRecords: mockRecords,
   tradeRoutes: mockTradeRoutes,
   sourceCatalog: dataSourceCatalog,
-  localizationAliases,
+  localizationAliases: workerLocalizationAliases,
   cargoShips: cargoShipStats,
   uexTradeLocations
 };
