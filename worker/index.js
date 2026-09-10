@@ -9,6 +9,8 @@ const WIKI_API_BASE_URL = "https://api.star-citizen.wiki";
 const UEX_API_BASE_URL = "https://api.uexcorp.uk/2.0";
 const CITIZENWIKI_SEARCH_URL = "https://citizenwiki.cn/index.php";
 const STAR_CITIZEN_TOOLS_SEARCH_URL = "https://starcitizen.tools/index.php";
+const PARATRANZ_TERMS_API_URL = "https://paratranz.cn/api/projects/8340/terms";
+const PARATRANZ_TERMS_SOURCE_URL = "https://paratranz.cn/projects/8340/terms";
 const KRAKEN_IMAGE_URL =
   "https://robertsspaceindustries.com/i/246490295838c8d442391398f9bfa4069693509e/resize(2048,1024,cover,ADdPNihJzmPbNuTnFsH1DqUeqBRpXdSXVVtgJTyDDgscGKrzJuoFjResjqYHRGgyn5CBWsSTK3b9eZJ6fQD1C1ydp)/source.jpg";
 const KRAKEN_PRIVATEER_IMAGE_URL =
@@ -69,7 +71,16 @@ const RATE_LIMITS = new Map();
 const UEX_ROUTE_CACHE = new Map();
 const UEX_ROUTE_CACHE_TTL_MS = 15 * 60 * 1000;
 const WIKI_SHIP_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const PARATRANZ_TERMS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const PARATRANZ_TERMS_PAGE_SIZE = 100;
+const PARATRANZ_TERMS_MAX_PAGES = 80;
 let WIKI_SHIP_CACHE;
+let PARATRANZ_TERMS_CACHE = {
+  aliases: undefined,
+  expiresAt: 0,
+  fetchedAt: undefined,
+  promise: undefined,
+};
 
 const ENTITY_TYPES = new Set([
   "all",
@@ -1149,6 +1160,185 @@ function findLocalizationAliases(query, limit = 10) {
     .map((item) => item.alias);
 }
 
+function normalizeRuntimeAliasText(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s_\-·・:：,，.。;；'\"()[\]（）]+/g, " ")
+    .trim();
+}
+
+function normalizeRuntimeAliasLooseText(value) {
+  return normalizeRuntimeAliasText(value).replace(/[aeiou]/g, "").replace(/\s+/g, "");
+}
+
+function cleanParatranzTermText(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasEnglishText(value) {
+  return /[A-Za-z]/u.test(String(value ?? ""));
+}
+
+function makeParatranzAlias(term, index = 0, variant) {
+  const id = String(term?.id ?? "").trim();
+  const en = cleanParatranzTermText(variant ?? term?.term);
+  const zh = cleanParatranzTermText(term?.translation);
+
+  if (!id || !en || !zh || !hasEnglishText(en) || !hasCjkText(zh)) {
+    return undefined;
+  }
+
+  return {
+    id: `ptz-${id}${variant ? `-${index}` : ""}`,
+    zh,
+    en,
+    key: `paratranz_term_${id}${variant ? "_variant" : ""}`,
+    packageId: "paratranz_terms",
+    kind: variant ? "term-variant" : "term",
+  };
+}
+
+function makeParatranzAliases(terms) {
+  const aliases = [];
+
+  for (const term of Array.isArray(terms) ? terms : []) {
+    const alias = makeParatranzAlias(term);
+
+    if (alias) {
+      aliases.push(alias);
+    }
+
+    if (Array.isArray(term?.variants)) {
+      term.variants.forEach((variant, index) => {
+        const variantAlias = makeParatranzAlias(term, index + 1, variant);
+
+        if (variantAlias) {
+          aliases.push(variantAlias);
+        }
+      });
+    }
+  }
+
+  return aliases;
+}
+
+async function fetchParatranzAliases() {
+  const terms = [];
+  let pageCount = 1;
+
+  for (let page = 1; page <= Math.min(pageCount, PARATRANZ_TERMS_MAX_PAGES); page += 1) {
+    const url = new URL(PARATRANZ_TERMS_API_URL);
+    url.searchParams.set("page", String(page));
+    url.searchParams.set("pageSize", String(PARATRANZ_TERMS_PAGE_SIZE));
+
+    const response = await fetch(url, {
+      headers: {
+        accept: "application/json",
+        "user-agent": "ENIGMA Ledger localization sync",
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`ParaTranz terms request failed: ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const results = Array.isArray(payload?.results) ? payload.results : [];
+    terms.push(...results);
+    pageCount = Number.isFinite(Number(payload?.pageCount)) ? Number(payload.pageCount) : pageCount;
+
+    if (!results.length) {
+      break;
+    }
+  }
+
+  return makeParatranzAliases(terms);
+}
+
+function mergeRuntimeAliasSources(staticAliases, dynamicAliases) {
+  const merged = [];
+  const seen = new Set();
+
+  for (const alias of [...(dynamicAliases ?? []), ...(staticAliases ?? [])]) {
+    const key = `${normalizeRuntimeAliasText(alias.zh)}=>${normalizeRuntimeAliasText(alias.en)}`;
+
+    if (!key.includes("=>") || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    merged.push(alias);
+  }
+
+  return merged;
+}
+
+async function getRuntimeLocalizationAliases(refresh = false) {
+  const staticAliases = Array.isArray(ENIGMA_DATA.localizationAliases) ? ENIGMA_DATA.localizationAliases : [];
+  const now = Date.now();
+
+  if (!refresh && PARATRANZ_TERMS_CACHE.aliases && PARATRANZ_TERMS_CACHE.expiresAt > now) {
+    return mergeRuntimeAliasSources(staticAliases, PARATRANZ_TERMS_CACHE.aliases);
+  }
+
+  if (!PARATRANZ_TERMS_CACHE.promise) {
+    PARATRANZ_TERMS_CACHE.promise = fetchParatranzAliases()
+      .then((aliases) => {
+        PARATRANZ_TERMS_CACHE = {
+          aliases,
+          expiresAt: Date.now() + PARATRANZ_TERMS_CACHE_TTL_MS,
+          fetchedAt: new Date().toISOString(),
+          promise: undefined,
+        };
+        return aliases;
+      })
+      .catch((error) => {
+        PARATRANZ_TERMS_CACHE.promise = undefined;
+        console.error(error);
+        return PARATRANZ_TERMS_CACHE.aliases ?? [];
+      });
+  }
+
+  const dynamicAliases = await PARATRANZ_TERMS_CACHE.promise;
+  return mergeRuntimeAliasSources(staticAliases, dynamicAliases);
+}
+
+function findRuntimeLocalizationAliases(query, limit = 10, aliasSource) {
+  const normalizedQuery = normalizeRuntimeAliasText(query);
+  const looseQuery = normalizeRuntimeAliasLooseText(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return (Array.isArray(aliasSource) ? aliasSource : [])
+    .map((alias) => {
+      const zh = normalizeRuntimeAliasText(alias.zh);
+      const en = normalizeRuntimeAliasText(alias.en);
+      const key = normalizeRuntimeAliasText(alias.key);
+      const looseEn = normalizeRuntimeAliasLooseText(alias.en);
+      const exact = zh === normalizedQuery || en === normalizedQuery ? 100 : 0;
+      const prefix = zh.startsWith(normalizedQuery) || en.startsWith(normalizedQuery) ? 70 : 0;
+      const contains = zh.includes(normalizedQuery) || en.includes(normalizedQuery) || key.includes(normalizedQuery) ? 35 : 0;
+      const reverseContains = normalizedQuery.includes(zh) || normalizedQuery.includes(en) ? 20 : 0;
+      const loose =
+        looseQuery.length >= 4 && looseEn.length >= 4 && (looseEn === looseQuery || looseEn.includes(looseQuery) || looseQuery.includes(looseEn))
+          ? 18
+          : 0;
+      const score = exact || prefix || contains || reverseContains || loose;
+
+      return { alias, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.alias.zh.length - right.alias.zh.length)
+    .slice(0, limit)
+    .map((item) => item.alias);
+}
+
 function getAliasShipPatch(alias) {
   if (!String(alias.key ?? "").toLowerCase().startsWith("vehicle_name")) {
     return undefined;
@@ -1186,6 +1376,31 @@ function makeLocalizationAliasRecord(alias) {
       source: {
         sourceName: "RSI Official Store + SC Localization Alias",
         sourceUrl: shipPatch.sourceUrl,
+        sourceRecordId: alias.id,
+        freshness: "recent",
+      },
+    };
+  }
+
+  if (alias.packageId === "paratranz_terms") {
+    return {
+      id: `paratranz-${alias.id}`,
+      type: "reference",
+      slug: `paratranz-${alias.id}`,
+      name: alias.en,
+      nameZh: alias.zh,
+      categoryLabel: "汉化组术语",
+      summary: `来自 Paratranz 汉化组公共术语表的中英术语：${alias.zh} -> ${alias.en}。`,
+      tags: ["ParaTranz", "汉化组术语", alias.zh, alias.en, alias.key],
+      stats: {
+        "Chinese Term": alias.zh,
+        "English Term": alias.en,
+        "Term ID": String(alias.key ?? "").replace("paratranz_term_", ""),
+        Source: "ParaTranz project 8340",
+      },
+      source: {
+        sourceName: "ParaTranz Terms",
+        sourceUrl: PARATRANZ_TERMS_SOURCE_URL,
         sourceRecordId: alias.id,
         freshness: "recent",
       },
@@ -1283,8 +1498,9 @@ function recordCompletenessScore(record) {
 async function aggregateSearch(input) {
   const providerResults = [];
   const query = input.query.trim();
+  const aliasSource = (input.source === "all" || input.source === "wiki") && query.length >= 2 ? await getRuntimeLocalizationAliases() : [];
   const localizationAliases =
-    (input.source === "all" || input.source === "wiki") && query.length >= 2 ? findLocalizationAliases(query, 10) : [];
+    (input.source === "all" || input.source === "wiki") && query.length >= 2 ? findRuntimeLocalizationAliases(query, 10, aliasSource) : [];
 
   if (input.source === "local") {
     providerResults.push({
@@ -1319,17 +1535,17 @@ async function aggregateSearch(input) {
         throw wikiResults[0].reason;
       }
 
-      providerResults.push({
-        provider: "wiki",
-        records,
-      });
-
       if (localizationAliases.length) {
         providerResults.push({
           provider: "localization",
           records: makeLocalizationAliasRecords(localizationAliases, input),
         });
       }
+
+      providerResults.push({
+        provider: "wiki",
+        records,
+      });
 
       if (shouldAppendWikiSearchLinks(input, query, records.length)) {
         providerResults.push({
@@ -1338,18 +1554,18 @@ async function aggregateSearch(input) {
         });
       }
     } catch (error) {
-      providerResults.push({
-        provider: "wiki",
-        records: [],
-        error: error instanceof Error ? error.message : "Wiki search failed.",
-      });
-
       if (localizationAliases.length) {
         providerResults.push({
           provider: "localization",
           records: makeLocalizationAliasRecords(localizationAliases, input),
         });
       }
+
+      providerResults.push({
+        provider: "wiki",
+        records: [],
+        error: error instanceof Error ? error.message : "Wiki search failed.",
+      });
 
       if (shouldAppendWikiSearchLinks(input, query, 0)) {
         providerResults.push({
@@ -2541,6 +2757,10 @@ async function handleApi(request, env, url) {
 }
 
 export default {
+  async scheduled(_event, _env, ctx) {
+    ctx.waitUntil(getRuntimeLocalizationAliases(true));
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
 

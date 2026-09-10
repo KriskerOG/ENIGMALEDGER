@@ -238,6 +238,31 @@ function makeLocalizationAliasRecord(alias: LocalizationAlias): SearchRecord {
     };
   }
 
+  if (alias.packageId === "paratranz_terms") {
+    return {
+      id: `paratranz-${alias.id}`,
+      type: "reference",
+      slug: `paratranz-${alias.id}`,
+      name: alias.en,
+      nameZh: alias.zh,
+      categoryLabel: "汉化组术语",
+      summary: `来自 Paratranz 汉化组公共术语表的中英术语：${alias.zh} -> ${alias.en}。`,
+      tags: ["ParaTranz", "汉化组术语", alias.zh, alias.en, alias.key],
+      stats: {
+        "Chinese Term": alias.zh,
+        "English Term": alias.en,
+        "Term ID": alias.key.replace("paratranz_term_", ""),
+        Source: "ParaTranz project 8340"
+      },
+      source: {
+        sourceName: "ParaTranz Terms",
+        sourceUrl: "https://paratranz.cn/projects/8340/terms",
+        sourceRecordId: alias.id,
+        freshness: "recent"
+      }
+    };
+  }
+
   return {
     id: `localization-${alias.id}`,
     type: "reference",
@@ -359,17 +384,17 @@ export async function aggregateSearch(input: AggregateSearchInput): Promise<Sear
         throw failedWikiResult.reason;
       }
 
-      providerResults.push({
-        provider: "wiki",
-        records: wikiRecords
-      });
-
       if (localizationAliases.length) {
         providerResults.push({
           provider: "localization",
           records: makeLocalizationAliasRecords(localizationAliases, input)
         });
       }
+
+      providerResults.push({
+        provider: "wiki",
+        records: wikiRecords
+      });
 
       if (shouldAppendWikiSearchLinks(input, query, wikiRecords.length)) {
         providerResults.push({
@@ -378,18 +403,18 @@ export async function aggregateSearch(input: AggregateSearchInput): Promise<Sear
         });
       }
     } catch (error) {
-      providerResults.push({
-        provider: "wiki",
-        records: [],
-        error: error instanceof Error ? error.message : "Wiki search failed."
-      });
-
       if (localizationAliases.length) {
         providerResults.push({
           provider: "localization",
           records: makeLocalizationAliasRecords(localizationAliases, input)
         });
       }
+
+      providerResults.push({
+        provider: "wiki",
+        records: [],
+        error: error instanceof Error ? error.message : "Wiki search failed."
+      });
 
       if (shouldAppendWikiSearchLinks(input, query, 0)) {
         providerResults.push({

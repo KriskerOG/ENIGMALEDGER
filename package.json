@@ -7,6 +7,7 @@
     "dev": "next dev",
     "build": "next build && node scripts/prepare-sites-build.mjs",
     "start": "next start",
+    "sync:localization": "node scripts/sync-paratranz-terms.mjs && node scripts/generate-localization-aliases.mjs",
     "sync:wiki:vehicles": "tsx scripts/sync-wiki-vehicles.ts",
     "typecheck": "tsc --noEmit"
   },

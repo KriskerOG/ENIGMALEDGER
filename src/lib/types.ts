@@ -21,6 +21,7 @@ export type SourceName =
   | "StarCitizen.tools"
   | "CitizenWiki CN"
   | "SC Localization Alias"
+  | "ParaTranz Terms"
   | "UEX Corp API"
   | "SC Trade Tools API"
   | "ENIGMA";

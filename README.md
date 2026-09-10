@@ -78,6 +78,14 @@ Non-production deploy command: npx wrangler versions upload
 
 Keep Cloudflare Access disabled for the public site, otherwise visitors will be asked to sign in.
 
+Localization terms are seeded from the public ParaTranz project 8340 glossary:
+
+```text
+pnpm run sync:localization
+```
+
+The production Worker also has a daily Cron trigger that refreshes the public ParaTranz glossary into its runtime cache. If the remote glossary is unavailable, search falls back to the bundled snapshot generated at build time.
+
 ## Suggested Stack
 
 - Frontend: Next.js + TypeScript

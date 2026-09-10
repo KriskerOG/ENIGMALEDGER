@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const packageOrder = ["cnrsui_v2", "cn_search_v1", "cnen_v1", "cne_v1", "cn_pinyin_v1", "cn_v1"];
-const maxAliases = 16000;
+const maxAliases = 32000;
+const paratranzTermsFile = path.join(root, "data", "paratranz-terms.json");
 const cjkRe = /[\u3400-\u9fff]/u;
 const englishRe = /[A-Za-z]/u;
 const placeholders =
@@ -125,8 +126,16 @@ function packagePriority(packageId) {
 function keyPriority(key) {
   const normalized = key.toLowerCase();
 
+  if (normalized.startsWith("paratranz_term_")) {
+    return 120;
+  }
+
   if (normalized.startsWith("vehicle_name")) {
     return 90;
+  }
+
+  if (normalized.startsWith("items_commodities_")) {
+    return 84;
   }
 
   if (normalized.includes("mission_location")) {
@@ -180,6 +189,42 @@ function addAlias(rawZh, rawEn, key, packageId, kind, bonus = 0) {
 
   if (!existing || score > existing.score) {
     aliases.set(identity, { zh, en, key, packageId, kind, score });
+  }
+}
+
+function toVariantList(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => (typeof item === "string" ? item : item?.term ?? item?.value ?? item?.text ?? ""))
+    .map(trimAliasEn)
+    .filter(Boolean);
+}
+
+function addParatranzTerms() {
+  if (!existsSync(paratranzTermsFile)) {
+    return;
+  }
+
+  const snapshot = JSON.parse(readFileSync(paratranzTermsFile, "utf8"));
+  const terms = Array.isArray(snapshot.terms) ? snapshot.terms : [];
+
+  for (const item of terms) {
+    const id = String(item.id ?? "").trim();
+    const term = trimAliasEn(item.term);
+    const translation = trimAliasZh(item.translation);
+
+    if (!id || !term || !translation) {
+      continue;
+    }
+
+    addAlias(translation, term, `paratranz_term_${id}`, "paratranz_terms", "term", 80);
+
+    for (const variant of toVariantList(item.variants)) {
+      addAlias(translation, variant, `paratranz_term_${id}_variant`, "paratranz_terms", "term-variant", 76);
+    }
   }
 }
 
@@ -265,6 +310,8 @@ for (const packageId of packageOrder) {
   }
 }
 
+addParatranzTerms();
+
 const sorted = Array.from(aliases.values())
   .filter((item) => item.zh.length <= 42 && item.en.length <= 84)
   .sort(
@@ -285,7 +332,7 @@ const outputDir = path.join(root, "src", "lib", "generated");
 mkdirSync(outputDir, { recursive: true });
 
 const outputFile = path.join(outputDir, "localization-aliases.ts");
-const source = `export interface LocalizationAlias {\n  id: string;\n  zh: string;\n  en: string;\n  key: string;\n  packageId: string;\n  kind?: string;\n}\n\nexport const localizationAliases: LocalizationAlias[] = ${JSON.stringify(sorted, null, 2)};\n\nexport function normalizeLocalizationAliasText(value: string | number | null | undefined): string {\n  return String(value ?? \"\")\n    .normalize(\"NFKC\")\n    .toLowerCase()\n    .replace(/[\\s_\\-·・:：,，.。;；'\\\"()[\\]（）]+/g, \" \")\n    .trim();\n}\n\nexport function findLocalizationAliases(query: string | undefined, limit = 8): LocalizationAlias[] {\n  const normalizedQuery = normalizeLocalizationAliasText(query);\n\n  if (!normalizedQuery) {\n    return [];\n  }\n\n  return localizationAliases\n    .map((alias) => {\n      const zh = normalizeLocalizationAliasText(alias.zh);\n      const en = normalizeLocalizationAliasText(alias.en);\n      const key = normalizeLocalizationAliasText(alias.key);\n      const exact = zh === normalizedQuery || en === normalizedQuery ? 100 : 0;\n      const prefix = zh.startsWith(normalizedQuery) || en.startsWith(normalizedQuery) ? 70 : 0;\n      const contains = zh.includes(normalizedQuery) || en.includes(normalizedQuery) || key.includes(normalizedQuery) ? 35 : 0;\n      const reverseContains = normalizedQuery.includes(zh) || normalizedQuery.includes(en) ? 20 : 0;\n      const score = exact || prefix || contains || reverseContains;\n\n      return { alias, score };\n    })\n    .filter((item) => item.score > 0)\n    .sort((left, right) => right.score - left.score || left.alias.zh.length - right.alias.zh.length)\n    .slice(0, limit)\n    .map((item) => item.alias);\n}\n`;
+const source = `export interface LocalizationAlias {\n  id: string;\n  zh: string;\n  en: string;\n  key: string;\n  packageId: string;\n  kind?: string;\n}\n\nexport const localizationAliases: LocalizationAlias[] = ${JSON.stringify(sorted, null, 2)};\n\nexport function normalizeLocalizationAliasText(value: string | number | null | undefined): string {\n  return String(value ?? \"\")\n    .normalize(\"NFKC\")\n    .toLowerCase()\n    .replace(/[\\s_\\-·・:：,，.。;；'\\\"()[\\]（）]+/g, \" \")\n    .trim();\n}\n\nfunction normalizeLooseLocalizationAliasText(value: string | number | null | undefined): string {\n  return normalizeLocalizationAliasText(value).replace(/[aeiou]/g, \"\").replace(/\\s+/g, \"\");\n}\n\nexport function findLocalizationAliases(query: string | undefined, limit = 8, aliasSource = localizationAliases): LocalizationAlias[] {\n  const normalizedQuery = normalizeLocalizationAliasText(query);\n  const looseQuery = normalizeLooseLocalizationAliasText(query);\n\n  if (!normalizedQuery) {\n    return [];\n  }\n\n  return aliasSource\n    .map((alias) => {\n      const zh = normalizeLocalizationAliasText(alias.zh);\n      const en = normalizeLocalizationAliasText(alias.en);\n      const key = normalizeLocalizationAliasText(alias.key);\n      const looseEn = normalizeLooseLocalizationAliasText(alias.en);\n      const exact = zh === normalizedQuery || en === normalizedQuery ? 100 : 0;\n      const prefix = zh.startsWith(normalizedQuery) || en.startsWith(normalizedQuery) ? 70 : 0;\n      const contains = zh.includes(normalizedQuery) || en.includes(normalizedQuery) || key.includes(normalizedQuery) ? 35 : 0;\n      const reverseContains = normalizedQuery.includes(zh) || normalizedQuery.includes(en) ? 20 : 0;\n      const loose = looseQuery.length >= 4 && looseEn.length >= 4 && (looseEn === looseQuery || looseEn.includes(looseQuery) || looseQuery.includes(looseEn)) ? 18 : 0;\n      const score = exact || prefix || contains || reverseContains || loose;\n\n      return { alias, score };\n    })\n    .filter((item) => item.score > 0)\n    .sort((left, right) => right.score - left.score || left.alias.zh.length - right.alias.zh.length)\n    .slice(0, limit)\n    .map((item) => item.alias);\n}\n`;
 
 writeFileSync(outputFile, source, "utf8");
 
