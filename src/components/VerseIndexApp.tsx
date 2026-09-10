@@ -863,7 +863,7 @@ function buildRouteRecommendations(routes: CalculatedTradeRoute[], cargoScu: num
   const usedRouteIds = new Set<string>();
   const stable = pickRoute(routes, usedRouteIds, (route) => scoreStableRoute(route, cargoScu));
   const hot = pickRoute(routes, usedRouteIds, (route) => scoreHotRoute(route, cargoScu));
-  const profit = pickRoute(routes, usedRouteIds, (route) => route.totalProfit);
+  const profit = pickRoute(routes, new Set(), (route) => route.totalProfit);
   const recommendations: Array<Omit<RouteRecommendation, "reason">> = [
     {
       kind: "stable",
