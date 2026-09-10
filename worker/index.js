@@ -117,6 +117,7 @@ let PARATRANZ_TERMS_CACHE = {
   fetchedAt: undefined,
   promise: undefined,
 };
+let UEX_TERMINAL_CACHE;
 
 const ENTITY_TYPES = new Set([
   "all",
@@ -1825,7 +1826,12 @@ function getManualTradeQueryAliases(query) {
     return [];
   }
 
-  return MANUAL_TRADE_QUERY_ALIAS_PAIRS.find(([alias]) => normalizeTradeAliasText(alias) === normalizedQuery)?.[1] ?? [];
+  const explicitAliases = MANUAL_TRADE_QUERY_ALIAS_PAIRS.find(([alias]) => normalizeTradeAliasText(alias) === normalizedQuery)?.[1] ?? [];
+  const englishAlias = MANUAL_ENGLISH_TO_CHINESE_PAIRS.find(
+    ([english, chinese]) => normalizeTradeAliasText(english) === normalizedQuery || normalizeTradeAliasText(chinese) === normalizedQuery,
+  )?.[0];
+
+  return uniqueStrings([...explicitAliases, englishAlias]);
 }
 
 function getManualEnglishToChinese(value) {
@@ -1845,7 +1851,14 @@ function getLooseLocationQueryVariants(query) {
     return [];
   }
 
+  const titleCase = trimmed
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(/(\s+|-)/)
+    .map((part) => (/^[a-z]+$/i.test(part) ? `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}` : part))
+    .join("");
+
   return uniqueStrings([
+    titleCase,
     trimmed.replace(/([a-z])([A-Z])/g, "$1 $2"),
     trimmed.replace(/\b(port)(tressler)\b/gi, "$1 $2"),
     trimmed.replace(/\b(terra|stanton|pyro|nyx)(gateway)\b/gi, "$1 $2"),
@@ -2231,6 +2244,63 @@ function pickUexOriginTerminal(terminals, origin) {
   );
 }
 
+function scoreUexTerminalMatch(terminal, query) {
+  const normalizedQuery = normalizeUexName(resolveTradeQuery(query, "location") || query);
+  const compactQuery = normalizedQuery.replace(/\s+/g, "");
+  const candidates = [terminal.displayname, terminal.name, terminal.fullname, terminal.nickname, terminal.code]
+    .map((candidate) => normalizeUexName(candidate))
+    .filter(Boolean);
+  let score = terminal.type === "commodity" ? 8 : 0;
+
+  for (const candidate of candidates) {
+    const compactCandidate = candidate.replace(/\s+/g, "");
+
+    if (candidate === normalizedQuery || compactCandidate === compactQuery) {
+      score = Math.max(score, 100);
+    } else if (candidate.includes(normalizedQuery) || compactCandidate.includes(compactQuery)) {
+      score = Math.max(score, 72 - Math.max(0, candidate.length - normalizedQuery.length));
+    } else if (normalizedQuery.includes(candidate)) {
+      score = Math.max(score, 44);
+    }
+  }
+
+  return score;
+}
+
+function pickFuzzyUexTerminal(terminals, query) {
+  return terminals
+    .filter(
+      (terminal) =>
+        terminal?.type === "commodity" &&
+        isEnabledFlag(terminal.is_available) &&
+        isEnabledFlag(terminal.is_available_live) &&
+        isEnabledFlag(terminal.is_visible),
+    )
+    .map((terminal) => ({ terminal, score: scoreUexTerminalMatch(terminal, query) }))
+    .filter((item) => item.score >= 40)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        String(left.terminal.displayname ?? left.terminal.name).localeCompare(String(right.terminal.displayname ?? right.terminal.name)),
+    )[0]?.terminal;
+}
+
+async function fetchAllUexTerminals(env, refresh = false) {
+  if (!refresh && UEX_TERMINAL_CACHE && UEX_TERMINAL_CACHE.expiresAt > Date.now()) {
+    return UEX_TERMINAL_CACHE.terminals;
+  }
+
+  const terminalResponse = await fetchUexResource(env, "terminals");
+  const terminals = arrayFromData(terminalResponse.data);
+
+  UEX_TERMINAL_CACHE = {
+    expiresAt: Date.now() + UEX_ROUTE_CACHE_TTL_MS,
+    terminals,
+  };
+
+  return terminals;
+}
+
 async function fetchUexOriginTerminal(env, origin) {
   for (const query of buildUexTerminalQueries(origin)) {
     const terminalResponse = await fetchUexResource(env, "terminals", { name: query });
@@ -2241,7 +2311,7 @@ async function fetchUexOriginTerminal(env, origin) {
     }
   }
 
-  return undefined;
+  return pickFuzzyUexTerminal(await fetchAllUexTerminals(env), origin);
 }
 
 async function fetchUexTradeLocationSuggestions(env, query, limit = 20) {
@@ -2260,9 +2330,12 @@ async function fetchUexTradeLocationSuggestions(env, query, limit = 20) {
     )
     .map(mapUexTerminalToLocationSuggestion)
     .filter(Boolean);
+  const fuzzySuggestion = query
+    ? mapUexTerminalToLocationSuggestion(pickFuzzyUexTerminal(await fetchAllUexTerminals(env), query) ?? {})
+    : undefined;
   const seen = new Set();
 
-  return suggestions
+  return [...(fuzzySuggestion ? [fuzzySuggestion] : []), ...suggestions]
     .sort((left, right) => {
       const typeScore = (value) => (value.type === "commodity" ? 0 : 1);
       return typeScore(left) - typeScore(right) || left.displayName.localeCompare(right.displayName);

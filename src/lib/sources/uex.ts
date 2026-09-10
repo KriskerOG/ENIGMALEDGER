@@ -109,12 +109,18 @@ interface CachedUexRoutes {
   routes: TradeRouteRecord[];
 }
 
+interface CachedUexTerminals {
+  expiresAt: number;
+  terminals: UexTerminal[];
+}
+
 export interface UexTradeRoutesResult {
   originTerminal?: UexTerminal;
   routes: TradeRouteRecord[];
 }
 
 const uexRouteCache = new Map<string, CachedUexRoutes>();
+let uexTerminalCache: CachedUexTerminals | undefined;
 
 const manualTradeQueryAliasPairs: Array<[string, string[]]> = [
   ["特蕾莎", ["Port Tressler"]],
@@ -193,7 +199,12 @@ function getManualTradeQueryAliases(query: string | undefined): string[] {
     return [];
   }
 
-  return manualTradeQueryAliasPairs.find(([alias]) => normalizeTradeAliasText(alias) === normalizedQuery)?.[1] ?? [];
+  const explicitAliases = manualTradeQueryAliasPairs.find(([alias]) => normalizeTradeAliasText(alias) === normalizedQuery)?.[1] ?? [];
+  const englishAlias = manualEnglishToChinesePairs.find(
+    ([english, chinese]) => normalizeTradeAliasText(english) === normalizedQuery || normalizeTradeAliasText(chinese) === normalizedQuery
+  )?.[0];
+
+  return uniqueStrings([...explicitAliases, englishAlias]);
 }
 
 function getManualEnglishToChinese(value: string | undefined): string | undefined {
@@ -213,7 +224,14 @@ function getLooseLocationQueryVariants(query: string | undefined): string[] {
     return [];
   }
 
+  const titleCase = trimmed
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(/(\s+|-)/)
+    .map((part) => (/^[a-z]+$/i.test(part) ? `${part.slice(0, 1).toUpperCase()}${part.slice(1).toLowerCase()}` : part))
+    .join("");
+
   return uniqueStrings([
+    titleCase,
     trimmed.replace(/([a-z])([A-Z])/g, "$1 $2"),
     trimmed.replace(/\b(port)(tressler)\b/gi, "$1 $2"),
     trimmed.replace(/\b(terra|stanton|pyro|nyx)(gateway)\b/gi, "$1 $2"),
@@ -540,6 +558,59 @@ function pickOriginTerminal(terminals: UexTerminal[], origin: string): UexTermin
   );
 }
 
+function scoreTerminalMatch(terminal: UexTerminal, query: string): number {
+  const normalizedQuery = normalizeName(resolveTradeQuery(query, "location") || query);
+  const compactQuery = normalizedQuery.replace(/\s+/g, "");
+  const candidates = [terminal.displayname, terminal.name, terminal.fullname, terminal.nickname, terminal.code]
+    .map((candidate) => normalizeName(candidate))
+    .filter(Boolean);
+  let score = terminal.type === "commodity" ? 8 : 0;
+
+  for (const candidate of candidates) {
+    const compactCandidate = candidate.replace(/\s+/g, "");
+
+    if (candidate === normalizedQuery || compactCandidate === compactQuery) {
+      score = Math.max(score, 100);
+    } else if (candidate.includes(normalizedQuery) || compactCandidate.includes(compactQuery)) {
+      score = Math.max(score, 72 - Math.max(0, candidate.length - normalizedQuery.length));
+    } else if (normalizedQuery.includes(candidate)) {
+      score = Math.max(score, 44);
+    }
+  }
+
+  return score;
+}
+
+function pickFuzzyTerminal(terminals: UexTerminal[], query: string): UexTerminal | undefined {
+  return terminals
+    .filter(
+      (terminal) =>
+        terminal.type === "commodity" &&
+        isEnabled(terminal.is_available) &&
+        isEnabled(terminal.is_available_live) &&
+        isEnabled(terminal.is_visible)
+    )
+    .map((terminal) => ({ terminal, score: scoreTerminalMatch(terminal, query) }))
+    .filter((item) => item.score >= 40)
+    .sort((left, right) => right.score - left.score || String(left.terminal.displayname ?? left.terminal.name).localeCompare(String(right.terminal.displayname ?? right.terminal.name)))[0]?.terminal;
+}
+
+async function fetchAllUexTerminals(refresh = false): Promise<UexTerminal[]> {
+  if (!refresh && uexTerminalCache && uexTerminalCache.expiresAt > Date.now()) {
+    return uexTerminalCache.terminals;
+  }
+
+  const terminalResponse = await fetchUexResource<UexTerminal[]>("terminals");
+  const terminals = asArray(terminalResponse.data);
+
+  uexTerminalCache = {
+    expiresAt: Date.now() + UEX_ROUTE_CACHE_TTL_MS,
+    terminals
+  };
+
+  return terminals;
+}
+
 async function fetchOriginTerminal(origin: string): Promise<UexTerminal | undefined> {
   for (const query of buildTerminalQueries(origin)) {
     const terminalResponse = await fetchUexResource<UexTerminal[]>("terminals", { name: query });
@@ -550,7 +621,7 @@ async function fetchOriginTerminal(origin: string): Promise<UexTerminal | undefi
     }
   }
 
-  return undefined;
+  return pickFuzzyTerminal(await fetchAllUexTerminals(), origin);
 }
 
 export async function fetchUexTradeLocationSuggestions(
@@ -572,9 +643,10 @@ export async function fetchUexTradeLocationSuggestions(
     )
     .map(mapTerminalToLocationSuggestion)
     .filter((suggestion): suggestion is UexTradeLocationSuggestion => Boolean(suggestion));
+  const fuzzySuggestion = query ? mapTerminalToLocationSuggestion(pickFuzzyTerminal(await fetchAllUexTerminals(), query) ?? ({} as UexTerminal)) : undefined;
   const seen = new Set<string>();
 
-  return suggestions
+  return [...(fuzzySuggestion ? [fuzzySuggestion] : []), ...suggestions]
     .sort((left, right) => {
       const typeScore = (value: UexTradeLocationSuggestion) => (value.type === "commodity" ? 0 : 1);
       return typeScore(left) - typeScore(right) || left.displayName.localeCompare(right.displayName);

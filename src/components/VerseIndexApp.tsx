@@ -1783,22 +1783,11 @@ export function VerseIndexApp() {
           return;
         }
 
-        setRoutes(
-          calculateTradeRoutes({
-            origin: tradeOrigin,
-            destination: tradeDestination,
-            cargoScu,
-            budgetUec,
-            limit: ROUTE_RESULT_LIMIT,
-            routeMode,
-            containerSize,
-            stopCount: routeStopCount
-          })
-        );
+        setRoutes([]);
         setRouteSource("local fallback");
         setRouteUpstreamCount(undefined);
         setRoutePlanMode("direct");
-        setRoutesError("贸易 API 暂不可用");
+        setRoutesError("贸易 API 暂不可用，未使用不匹配的本地样例路线。");
       })
       .finally(() => {
         if (active) {
