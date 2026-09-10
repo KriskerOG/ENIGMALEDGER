@@ -615,6 +615,7 @@ function mapSearchRecordToCargoShip(record: SearchRecord): CargoShipRecord | und
   return {
     id: record.id,
     name: record.name,
+    nameZh: record.nameZh,
     slug: record.slug,
     manufacturer,
     manufacturerCode: manufacturerCodeFromName(manufacturer),
@@ -1119,7 +1120,7 @@ function PilotShipPanel({
               <optgroup key={group.manufacturer} label={group.manufacturer}>
                 {group.ships.map((ship) => (
                   <option key={ship.id} value={ship.id}>
-                    {ship.name} - {getShipCargoScu(ship)} SCU
+                    {ship.name}{ship.nameZh ? ` / ${ship.nameZh}` : ""} - {getShipCargoScu(ship)} SCU
                   </option>
                 ))}
               </optgroup>
@@ -1138,7 +1139,7 @@ function PilotShipPanel({
           <div className="selected-ship-overlay">
             <span>{selectedShip?.manufacturer ?? "Unknown manufacturer"}</span>
             <strong>{selectedShip?.name ?? "No ship selected"}</strong>
-            <small>{role} / {shipCargoScu ? `${shipCargoScu} SCU` : "N/A"}</small>
+            <small>{selectedShip?.nameZh ? `${selectedShip.nameZh} / ` : ""}{role} / {shipCargoScu ? `${shipCargoScu} SCU` : "N/A"}</small>
           </div>
         </div>
 
@@ -1205,7 +1206,7 @@ function PilotShipPanel({
                       <div className="ship-choice-meta">
                         <span>{ship.manufacturer}</span>
                         <strong>{ship.name}</strong>
-                        <small>{getShipRole(ship)}</small>
+                        <small>{ship.nameZh ? `${ship.nameZh} / ` : ""}{getShipRole(ship)}</small>
                       </div>
                       <div className="ship-choice-stats">
                         <span>{getShipCargoScu(ship)} SCU</span>

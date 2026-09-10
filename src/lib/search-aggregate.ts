@@ -2,7 +2,7 @@ import { searchRecordsFromDb } from "./db/search-repository";
 import { findLocalizationAliases, type LocalizationAlias } from "./generated/localization-aliases";
 import { mockRecords } from "./mock-data";
 import { searchRecords } from "./search";
-import { searchWikiRecords, searchWikiVehicleRecords } from "./sources/star-citizen-wiki";
+import { searchCargoShipStatsRecords, searchWikiRecords, searchWikiVehicleRecords } from "./sources/star-citizen-wiki";
 import type { SearchInput, SearchProviderResult, SearchRecord, SearchSourceFilter } from "./types";
 
 const CITIZENWIKI_SEARCH_URL = "https://citizenwiki.cn/index.php";
@@ -366,6 +366,12 @@ export async function aggregateSearch(input: AggregateSearchInput): Promise<Sear
     try {
       const shouldSearchVehicles = !input.type || input.type === "all" || input.type === "ship" || input.type === "vehicle";
       const wikiQueries = getWikiSearchQueries(query, localizationAliases);
+      const cargoShipRecords = shouldSearchVehicles
+        ? dedupeRecords(wikiQueries.flatMap((wikiQuery) => searchCargoShipStatsRecords({ ...input, query: wikiQuery }))).slice(
+            0,
+            input.limit ?? 25
+          )
+        : [];
       const wikiResults = await Promise.allSettled(
         wikiQueries.flatMap((wikiQuery) => [
           searchWikiRecords(wikiQuery),
@@ -380,8 +386,15 @@ export async function aggregateSearch(input: AggregateSearchInput): Promise<Sear
 
       const failedWikiResult = wikiResults.find((result) => result.status === "rejected");
 
-      if (!wikiRecords.length && failedWikiResult && wikiResults.every((result) => result.status === "rejected")) {
+      if (!cargoShipRecords.length && !wikiRecords.length && failedWikiResult && wikiResults.every((result) => result.status === "rejected")) {
         throw failedWikiResult.reason;
+      }
+
+      if (cargoShipRecords.length) {
+        providerResults.push({
+          provider: "cargo-ship-stats",
+          records: cargoShipRecords
+        });
       }
 
       if (localizationAliases.length) {

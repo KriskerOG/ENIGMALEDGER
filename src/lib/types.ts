@@ -22,6 +22,7 @@ export type SourceName =
   | "CitizenWiki CN"
   | "SC Localization Alias"
   | "ParaTranz Terms"
+  | "StarCitizen.tools Ship Cargo Stats"
   | "UEX Corp API"
   | "SC Trade Tools API"
   | "ENIGMA";
@@ -134,6 +135,7 @@ export interface CalculatedTradeRoute extends CalculatedTradeLeg {
 export interface CargoShipRecord {
   id: string;
   name: string;
+  nameZh?: string;
   slug: string;
   manufacturer: string;
   manufacturerCode?: string;

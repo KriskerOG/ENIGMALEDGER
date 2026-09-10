@@ -86,6 +86,12 @@ pnpm run sync:localization
 
 The production Worker also has a daily Cron trigger that refreshes the public ParaTranz glossary into its runtime cache. If the remote glossary is unavailable, search falls back to the bundled snapshot generated at build time.
 
+Cargo-capable ship options are seeded from StarCitizen.tools Ship cargo stats, including concept and in-production ships that may be missing from the vehicles API:
+
+```text
+pnpm run sync:cargo-ships
+```
+
 ## Suggested Stack
 
 - Frontend: Next.js + TypeScript

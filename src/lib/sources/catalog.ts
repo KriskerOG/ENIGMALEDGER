@@ -12,7 +12,7 @@ export const dataSourceCatalog: DataSourceCatalogItem[] = [
   {
     id: "star-citizen-wiki",
     name: "Star Citizen Wiki API",
-    purpose: ["search_database", "cargo_ship_catalog", "ships", "vehicles", "components", "items", "locations", "manufacturers"],
+    purpose: ["search_database", "ship_cargo_stats", "cargo_ship_catalog", "ships", "vehicles", "components", "items", "locations", "manufacturers"],
     docsUrl: "https://docs.star-citizen.wiki/",
     requiresToken: false,
     recommendedCadence: "daily",

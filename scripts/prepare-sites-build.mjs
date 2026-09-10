@@ -66,11 +66,13 @@ copyFileSync(path.join(root, "worker", "index.js"), path.join(server, "index.js"
 const { mockRecords, mockTradeRoutes } = loadTsExports("src/lib/mock-data.ts", ["mockRecords", "mockTradeRoutes"]);
 const { dataSourceCatalog } = loadTsExports("src/lib/sources/catalog.ts", ["dataSourceCatalog"]);
 const { localizationAliases } = loadTsExports("src/lib/generated/localization-aliases.ts", ["localizationAliases"]);
+const { cargoShipStats } = loadTsExports("src/lib/generated/cargo-ship-stats.ts", ["cargoShipStats"]);
 const workerData = {
   searchRecords: mockRecords,
   tradeRoutes: mockTradeRoutes,
   sourceCatalog: dataSourceCatalog,
-  localizationAliases
+  localizationAliases,
+  cargoShips: cargoShipStats
 };
 const workerSource = readFileSync(path.join(root, "worker", "index.js"), "utf8");
 const workerDataPrefix = `globalThis.__ENIGMA_WORKER_DATA__ = ${JSON.stringify(workerData)};\n`;

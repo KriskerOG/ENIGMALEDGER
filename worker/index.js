@@ -3,6 +3,7 @@ const ENIGMA_DATA = globalThis.__ENIGMA_WORKER_DATA__ ?? {
   tradeRoutes: [],
   sourceCatalog: [],
   localizationAliases: [],
+  cargoShips: [],
 };
 
 const WIKI_API_BASE_URL = "https://api.star-citizen.wiki";
@@ -882,6 +883,116 @@ function formatVehicleCrew(crew) {
   return min || max || null;
 }
 
+function getStaticCargoShips() {
+  return Array.isArray(ENIGMA_DATA.cargoShips) ? ENIGMA_DATA.cargoShips : [];
+}
+
+function cargoShipCompletenessScore(ship) {
+  return (
+    (ship.imageUrl ? 12 : 0) +
+    (ship.nameZh ? 5 : 0) +
+    (ship.maxContainerSize ? 3 : 0) +
+    (ship.role ? 2 : 0) +
+    (ship.size ? 2 : 0) +
+    (ship.pledgeUrl ? 2 : 0) +
+    (ship.productionState ? 3 : 0) +
+    Math.min(12, Math.floor(numberOrZero(ship.cargoScu) / 500))
+  );
+}
+
+function dedupeCargoShips(ships) {
+  const deduped = new Map();
+
+  for (const ship of ships) {
+    const key = `${ship.manufacturer}:${ship.name}`.toLowerCase();
+    const existing = deduped.get(key);
+
+    if (!existing || cargoShipCompletenessScore(ship) > cargoShipCompletenessScore(existing)) {
+      deduped.set(key, { ...ship });
+    }
+  }
+
+  return Array.from(deduped.values()).sort(
+    (left, right) => String(left.manufacturer).localeCompare(String(right.manufacturer)) || String(left.name).localeCompare(String(right.name)),
+  );
+}
+
+function normalizeCargoShipSearchText(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s_\-·・:：,，.。;；'"()[\]（）/]+/g, " ")
+    .trim();
+}
+
+function scoreCargoShipRecord(ship, query) {
+  if (!query) {
+    return 1;
+  }
+
+  const normalizedQuery = normalizeCargoShipSearchText(query);
+  const fields = [ship.name, ship.nameZh, ship.manufacturer, ship.manufacturerCode, ship.role, ship.productionState]
+    .map(normalizeCargoShipSearchText)
+    .filter(Boolean);
+
+  if (fields.some((field) => field === normalizedQuery)) {
+    return 100;
+  }
+
+  if (fields.some((field) => field.startsWith(normalizedQuery))) {
+    return 70;
+  }
+
+  if (fields.some((field) => field.includes(normalizedQuery))) {
+    return 35;
+  }
+
+  return 0;
+}
+
+function cargoShipStatToSearchRecord(ship) {
+  return {
+    id: `cargo-ship-stat-${ship.slug}`,
+    type: "ship",
+    slug: `ship-${ship.slug}`,
+    name: ship.name,
+    nameZh: ship.nameZh,
+    imageUrl: ship.imageUrl,
+    manufacturer: ship.manufacturer,
+    categoryLabel: ship.productionState ? `Ship / ${ship.productionState}` : "Ship / Cargo stats",
+    summary:
+      ship.summary ??
+      `${ship.name} is listed with ${numberOrZero(ship.cargoScu).toLocaleString("en-US")} SCU cargo capacity in StarCitizen.tools Ship cargo stats.`,
+    tags: [ship.manufacturer, ship.manufacturerCode, ship.role, ship.size, ship.productionState, ship.nameZh].filter(Boolean),
+    stats: {
+      Manufacturer: ship.manufacturer,
+      Role: ship.role ?? null,
+      Size: ship.size ?? null,
+      Cargo: `${numberOrZero(ship.cargoScu).toLocaleString("en-US")} SCU`,
+      "Production State": ship.productionState ?? null,
+    },
+    source: ship.source,
+  };
+}
+
+function searchCargoShipStatsRecords(input) {
+  const query = String(input.query ?? "").trim();
+
+  return getStaticCargoShips()
+    .map((ship) => ({ ship, score: scoreCargoShipRecord(ship, query) }))
+    .filter((item) => item.score > 0)
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        numberOrZero(right.ship.cargoScu) - numberOrZero(left.ship.cargoScu) ||
+        String(left.ship.manufacturer).localeCompare(String(right.ship.manufacturer)) ||
+        String(left.ship.name).localeCompare(String(right.ship.name)),
+    )
+    .map((item) => cargoShipStatToSearchRecord(item.ship))
+    .filter((record) => matchesFilters(record, input))
+    .slice(0, input.limit ?? 25);
+}
+
 function mapWikiVehicleToRecord(vehicle, fetchedAt = new Date()) {
   const name = vehicle.game_name ?? vehicle.name;
 
@@ -1001,43 +1112,50 @@ async function fetchWikiCargoShips(refresh = false) {
     return WIKI_SHIP_CACHE.ships;
   }
 
-  const firstPage = await fetchWikiVehicleCollection({
-    "page[number]": 1,
-    "page[size]": 100,
-  });
-  const lastPage = Math.max(1, firstPage.meta?.last_page ?? 1);
-  const pages = [firstPage];
+  const fetchedAt = new Date();
+  let wikiShips = [];
 
-  if (lastPage > 1) {
-    const remainingPages = await Promise.all(
-      Array.from({ length: lastPage - 1 }, (_, index) =>
-        fetchWikiVehicleCollection({
-          "page[number]": index + 2,
-          "page[size]": 100,
-        }),
-      ),
-    );
+  try {
+    const firstPage = await fetchWikiVehicleCollection({
+      "page[number]": 1,
+      "page[size]": 100,
+    });
+    const lastPage = Math.max(1, firstPage.meta?.last_page ?? 1);
+    const pages = [firstPage];
 
-    pages.push(...remainingPages);
+    if (lastPage > 1) {
+      const remainingPages = await Promise.all(
+        Array.from({ length: lastPage - 1 }, (_, index) =>
+          fetchWikiVehicleCollection({
+            "page[number]": index + 2,
+            "page[size]": 100,
+          }),
+        ),
+      );
+
+      pages.push(...remainingPages);
+    }
+
+    const seen = new Set();
+    wikiShips = pages
+      .flatMap((page) => page.data ?? [])
+      .map((vehicle) => mapWikiVehicleToCargoShip(vehicle, fetchedAt))
+      .filter(Boolean)
+      .filter((ship) => {
+        const key = `${ship.manufacturer}:${ship.name}`.toLowerCase();
+
+        if (seen.has(key)) {
+          return false;
+        }
+
+        seen.add(key);
+        return true;
+      });
+  } catch {
+    wikiShips = [];
   }
 
-  const fetchedAt = new Date();
-  const seen = new Set();
-  const ships = pages
-    .flatMap((page) => page.data ?? [])
-    .map((vehicle) => mapWikiVehicleToCargoShip(vehicle, fetchedAt))
-    .filter(Boolean)
-    .filter((ship) => {
-      const key = `${ship.manufacturer}:${ship.name}`.toLowerCase();
-
-      if (seen.has(key)) {
-        return false;
-      }
-
-      seen.add(key);
-      return true;
-    })
-    .sort((left, right) => left.manufacturer.localeCompare(right.manufacturer) || left.name.localeCompare(right.name));
+  const ships = dedupeCargoShips([...wikiShips, ...getStaticCargoShips()]);
 
   WIKI_SHIP_CACHE = {
     expiresAt: Date.now() + WIKI_SHIP_CACHE_TTL_MS,
@@ -1521,6 +1639,9 @@ async function aggregateSearch(input) {
     try {
       const shouldSearchVehicles = input.type === "all" || input.type === "ship" || input.type === "vehicle";
       const wikiQueries = getWikiSearchQueries(query, localizationAliases);
+      const cargoShipRecords = shouldSearchVehicles
+        ? dedupeRecords(wikiQueries.flatMap((wikiQuery) => searchCargoShipStatsRecords({ ...input, query: wikiQuery }))).slice(0, input.limit)
+        : [];
       const wikiResults = await Promise.allSettled(
         wikiQueries.flatMap((wikiQuery) => [
           searchWikiRecords(wikiQuery),
@@ -1531,8 +1652,15 @@ async function aggregateSearch(input) {
         .filter((record) => matchesFilters(record, input))
         .slice(0, input.limit);
 
-      if (!records.length && wikiResults.every((result) => result.status === "rejected")) {
+      if (!cargoShipRecords.length && !records.length && wikiResults.every((result) => result.status === "rejected")) {
         throw wikiResults[0].reason;
+      }
+
+      if (cargoShipRecords.length) {
+        providerResults.push({
+          provider: "cargo-ship-stats",
+          records: cargoShipRecords,
+        });
       }
 
       if (localizationAliases.length) {
