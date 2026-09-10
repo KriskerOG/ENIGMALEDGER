@@ -7,15 +7,26 @@ import {
   getTradeQueryCandidates,
   type UexTradeLocationSuggestion
 } from "@/lib/sources/uex";
+import { uexTradeLocations } from "@/lib/generated/uex-trade-locations";
 
 export const runtime = "nodejs";
 
 const LocationQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
-  limit: z.coerce.number().int().min(1).max(50).optional().default(20)
+  limit: z.coerce.number().int().min(1).max(500).optional().default(200)
 });
 
 function aliasFallbackSuggestions(query: string | undefined, limit: number): UexTradeLocationSuggestion[] {
+  if (!query?.trim()) {
+    return uexTradeLocations.slice(0, limit).map((terminal) => ({
+      id: terminal.id,
+      name: terminal.name ?? terminal.displayname ?? terminal.fullname ?? terminal.code ?? "Unknown terminal",
+      displayName: terminal.displayname ?? terminal.name ?? terminal.fullname ?? terminal.code ?? "Unknown terminal",
+      code: terminal.code ?? undefined,
+      type: terminal.type ?? undefined
+    }));
+  }
+
   return getTradeQueryCandidates(query, "location", limit).map((candidate, index) => ({
     id: -1 - index,
     name: candidate,

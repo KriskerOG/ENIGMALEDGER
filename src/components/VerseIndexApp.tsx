@@ -243,9 +243,23 @@ function buildTradeLocationOptions(data: TradeLocationApiResponse["data"]): Trad
       label: labelParts.join(" / ")
     });
 
+    if (location.displayNameZh && location.displayNameZh !== location.displayName) {
+      options.push({
+        value: location.displayNameZh,
+        label: labelParts.join(" / ")
+      });
+    }
+
     if (location.name !== location.displayName) {
       options.push({
         value: location.name,
+        label: labelParts.join(" / ")
+      });
+    }
+
+    if (location.nameZh && location.nameZh !== location.name && location.nameZh !== location.displayNameZh) {
+      options.push({
+        value: location.nameZh,
         label: labelParts.join(" / ")
       });
     }
@@ -1225,10 +1239,8 @@ function PilotShipPanel({
   onCargoChange,
   onContainerSizeChange,
   onDestinationChange,
-  onDestinationFocus,
   onOpenTrade,
   onOriginChange,
-  onOriginFocus,
   onRouteModeChange,
   onShipChange,
   onStopCountChange,
@@ -1248,10 +1260,8 @@ function PilotShipPanel({
   onCargoChange: (value: number) => void;
   onContainerSizeChange: (value: number) => void;
   onDestinationChange: (value: string) => void;
-  onDestinationFocus: () => void;
   onOpenTrade: () => void;
   onOriginChange: (value: string) => void;
-  onOriginFocus: () => void;
   onRouteModeChange: (value: TradeRouteMode) => void;
   onShipChange: (shipId: string) => void;
   onStopCountChange: (value: number) => void;
@@ -1471,7 +1481,6 @@ function PilotShipPanel({
             autoComplete="off"
             list="trade-location-suggestions"
             value={origin}
-            onFocus={onOriginFocus}
             onChange={(event) => onOriginChange(event.currentTarget.value)}
           />
         </label>
@@ -1482,7 +1491,6 @@ function PilotShipPanel({
             list="trade-location-suggestions"
             placeholder="Any profitable destination"
             value={destination}
-            onFocus={onDestinationFocus}
             onChange={(event) => onDestinationChange(event.currentTarget.value)}
           />
         </label>
@@ -1580,7 +1588,6 @@ export function VerseIndexApp() {
   const [budgetUec, setBudgetUec] = useState(750000);
   const [tradeOrigin, setTradeOrigin] = useState(DEFAULT_TRADE_ORIGIN);
   const [tradeDestination, setTradeDestination] = useState("");
-  const [activeTradeLocationField, setActiveTradeLocationField] = useState<"origin" | "destination">("origin");
   const [tradeLocationOptions, setTradeLocationOptions] = useState<TradeLocationOption[]>(() => getStaticTradeLocationOptions());
   const [routeMode, setRouteMode] = useState<TradeRouteMode>("mixed");
   const [containerSize, setContainerSize] = useState(0);
@@ -1698,41 +1705,30 @@ export function VerseIndexApp() {
 
   useEffect(() => {
     let active = true;
-    const locationQuery = activeTradeLocationField === "origin" ? tradeOrigin : tradeDestination;
 
-    if (locationQuery.trim().length < 2) {
-      setTradeLocationOptions(getStaticTradeLocationOptions());
-      return () => {
-        active = false;
-      };
-    }
+    fetch("/api/trade/locations?limit=500")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Trade location API ${response.status}`);
+        }
 
-    const timer = window.setTimeout(() => {
-      fetch(`/api/trade/locations?q=${encodeURIComponent(locationQuery)}&limit=30`)
-        .then((response) => {
-          if (!response.ok) {
-            throw new Error(`Trade location API ${response.status}`);
-          }
-
-          return response.json() as Promise<TradeLocationApiResponse>;
-        })
-        .then((payload) => {
-          if (active) {
-            setTradeLocationOptions(buildTradeLocationOptions(payload.data));
-          }
-        })
-        .catch(() => {
-          if (active) {
-            setTradeLocationOptions(getStaticTradeLocationOptions());
-          }
-        });
-    }, 220);
+        return response.json() as Promise<TradeLocationApiResponse>;
+      })
+      .then((payload) => {
+        if (active) {
+          setTradeLocationOptions(buildTradeLocationOptions(payload.data));
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setTradeLocationOptions(getStaticTradeLocationOptions());
+        }
+      });
 
     return () => {
       active = false;
-      window.clearTimeout(timer);
     };
-  }, [activeTradeLocationField, tradeDestination, tradeOrigin]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -2149,10 +2145,8 @@ export function VerseIndexApp() {
                 onCargoChange={setCargoScu}
                 onContainerSizeChange={setContainerSize}
                 onDestinationChange={setTradeDestination}
-                onDestinationFocus={() => setActiveTradeLocationField("destination")}
                 onOpenTrade={() => setActivePanel("trade")}
                 onOriginChange={setTradeOrigin}
-                onOriginFocus={() => setActiveTradeLocationField("origin")}
                 onRouteModeChange={setRouteMode}
                 onShipChange={handleShipChange}
                 onStopCountChange={setRouteStopCount}
@@ -2221,7 +2215,6 @@ export function VerseIndexApp() {
                     autoComplete="off"
                     list="trade-location-suggestions"
                     value={tradeOrigin}
-                    onFocus={() => setActiveTradeLocationField("origin")}
                     onChange={(event) => setTradeOrigin(event.currentTarget.value)}
                   />
                 </label>
@@ -2232,7 +2225,6 @@ export function VerseIndexApp() {
                     list="trade-location-suggestions"
                     placeholder="Any destination"
                     value={tradeDestination}
-                    onFocus={() => setActiveTradeLocationField("destination")}
                     onChange={(event) => setTradeDestination(event.currentTarget.value)}
                   />
                 </label>
@@ -2288,6 +2280,7 @@ export function VerseIndexApp() {
                 <span>{routePlanMode === "loop" ? getStopCountLabel(routeStopCount) : "单段规划"}</span>
                 <span>{getRouteModeLabel(routeMode)}</span>
                 <span>{containerSize ? `${containerSize} SCU 箱型` : "自动箱型"}</span>
+                <span>{tradeLocationOptions.length} UEX 地点候选</span>
                 {typeof routeUpstreamCount === "number" ? <span>UEX upstream {routeUpstreamCount}</span> : null}
                 {shipsError ? <strong>{shipsError}</strong> : null}
               </div>

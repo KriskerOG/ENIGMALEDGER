@@ -67,12 +67,14 @@ const { mockRecords, mockTradeRoutes } = loadTsExports("src/lib/mock-data.ts", [
 const { dataSourceCatalog } = loadTsExports("src/lib/sources/catalog.ts", ["dataSourceCatalog"]);
 const { localizationAliases } = loadTsExports("src/lib/generated/localization-aliases.ts", ["localizationAliases"]);
 const { cargoShipStats } = loadTsExports("src/lib/generated/cargo-ship-stats.ts", ["cargoShipStats"]);
+const { uexTradeLocations } = loadTsExports("src/lib/generated/uex-trade-locations.ts", ["uexTradeLocations"]);
 const workerData = {
   searchRecords: mockRecords,
   tradeRoutes: mockTradeRoutes,
   sourceCatalog: dataSourceCatalog,
   localizationAliases,
-  cargoShips: cargoShipStats
+  cargoShips: cargoShipStats,
+  uexTradeLocations
 };
 const workerSource = readFileSync(path.join(root, "worker", "index.js"), "utf8");
 const workerDataPrefix = `globalThis.__ENIGMA_WORKER_DATA__ = ${JSON.stringify(workerData)};\n`;

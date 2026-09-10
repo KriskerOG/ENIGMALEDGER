@@ -4,6 +4,7 @@ const ENIGMA_DATA = globalThis.__ENIGMA_WORKER_DATA__ ?? {
   sourceCatalog: [],
   localizationAliases: [],
   cargoShips: [],
+  uexTradeLocations: [],
 };
 
 const WIKI_API_BASE_URL = "https://api.star-citizen.wiki";
@@ -2167,7 +2168,7 @@ function getRouteFreshness(sourceUpdatedAt) {
   return "stale";
 }
 
-async function fetchUexResource(env, resource, params = {}, timeoutMs = 10000) {
+async function fetchUexResource(env, resource, params = {}, timeoutMs = 20000) {
   if (!UEX_RESOURCES.has(resource)) {
     throw new Error(`UEX resource is not allowed: ${resource}`);
   }
@@ -2250,17 +2251,18 @@ function scoreUexTerminalMatch(terminal, query) {
   const candidates = [terminal.displayname, terminal.name, terminal.fullname, terminal.nickname, terminal.code]
     .map((candidate) => normalizeUexName(candidate))
     .filter(Boolean);
-  let score = terminal.type === "commodity" ? 8 : 0;
+  const typeBonus = terminal.type === "commodity" ? 8 : 0;
+  let score = 0;
 
   for (const candidate of candidates) {
     const compactCandidate = candidate.replace(/\s+/g, "");
 
     if (candidate === normalizedQuery || compactCandidate === compactQuery) {
-      score = Math.max(score, 100);
+      score = Math.max(score, 100 + typeBonus);
     } else if (candidate.includes(normalizedQuery) || compactCandidate.includes(compactQuery)) {
-      score = Math.max(score, 72 - Math.max(0, candidate.length - normalizedQuery.length));
+      score = Math.max(score, 72 + typeBonus - Math.max(0, candidate.length - normalizedQuery.length));
     } else if (normalizedQuery.includes(candidate)) {
-      score = Math.max(score, 44);
+      score = Math.max(score, 44 + typeBonus);
     }
   }
 
@@ -2285,13 +2287,29 @@ function pickFuzzyUexTerminal(terminals, query) {
     )[0]?.terminal;
 }
 
+function getStaticUexTradeTerminals() {
+  return Array.isArray(ENIGMA_DATA.uexTradeLocations) ? ENIGMA_DATA.uexTradeLocations.map((terminal) => ({ ...terminal })) : [];
+}
+
 async function fetchAllUexTerminals(env, refresh = false) {
+  const staticTerminals = getStaticUexTradeTerminals();
+
+  if (!refresh && staticTerminals.length) {
+    return staticTerminals;
+  }
+
   if (!refresh && UEX_TERMINAL_CACHE && UEX_TERMINAL_CACHE.expiresAt > Date.now()) {
     return UEX_TERMINAL_CACHE.terminals;
   }
 
-  const terminalResponse = await fetchUexResource(env, "terminals");
-  const terminals = arrayFromData(terminalResponse.data);
+  let terminals;
+
+  try {
+    const terminalResponse = await fetchUexResource(env, "terminals", {}, 18000);
+    terminals = arrayFromData(terminalResponse.data);
+  } catch {
+    terminals = staticTerminals;
+  }
 
   UEX_TERMINAL_CACHE = {
     expiresAt: Date.now() + UEX_ROUTE_CACHE_TTL_MS,
@@ -2315,31 +2333,35 @@ async function fetchUexOriginTerminal(env, origin) {
 }
 
 async function fetchUexTradeLocationSuggestions(env, query, limit = 20) {
-  const queries = getTradeQueryCandidates(query, "location", 8);
-  const terminalResponses = await Promise.allSettled(
-    queries.map((name) => fetchUexResource(env, "terminals", { name })),
-  );
-  const suggestions = terminalResponses
-    .filter((response) => response.status === "fulfilled")
-    .flatMap((response) => arrayFromData(response.value.data))
+  const trimmed = String(query ?? "").trim();
+  const queryCandidates = trimmed ? getTradeQueryCandidates(trimmed, "location", 8) : [];
+  const terminals = await fetchAllUexTerminals(env);
+  const suggestions = terminals
     .filter(
       (terminal) =>
+        terminal?.type === "commodity" &&
         isEnabledFlag(terminal.is_available) &&
         isEnabledFlag(terminal.is_available_live) &&
         isEnabledFlag(terminal.is_visible),
     )
+    .map((terminal) => ({
+      terminal,
+      score: trimmed
+        ? Math.max(scoreUexTerminalMatch(terminal, trimmed), ...queryCandidates.map((candidate) => scoreUexTerminalMatch(terminal, candidate)))
+        : 1,
+    }))
+    .filter((item) => item.score >= (trimmed ? 20 : 1))
+    .sort(
+      (left, right) =>
+        right.score - left.score ||
+        String(left.terminal.displayname ?? left.terminal.name).localeCompare(String(right.terminal.displayname ?? right.terminal.name)),
+    )
+    .map((item) => item.terminal)
     .map(mapUexTerminalToLocationSuggestion)
     .filter(Boolean);
-  const fuzzySuggestion = query
-    ? mapUexTerminalToLocationSuggestion(pickFuzzyUexTerminal(await fetchAllUexTerminals(env), query) ?? {})
-    : undefined;
   const seen = new Set();
 
-  return [...(fuzzySuggestion ? [fuzzySuggestion] : []), ...suggestions]
-    .sort((left, right) => {
-      const typeScore = (value) => (value.type === "commodity" ? 0 : 1);
-      return typeScore(left) - typeScore(right) || left.displayName.localeCompare(right.displayName);
-    })
+  return suggestions
     .filter((suggestion) => {
       const key = `${suggestion.id}:${normalizeTradeAliasText(suggestion.displayName)}`;
 
@@ -2350,7 +2372,7 @@ async function fetchUexTradeLocationSuggestions(env, query, limit = 20) {
       seen.add(key);
       return true;
     })
-    .slice(0, clampInteger(limit, 20, 1, 50));
+    .slice(0, clampInteger(limit, 20, 1, 500));
 }
 
 function buildUexLocationTrail(system, planet, orbit) {
@@ -2991,7 +3013,7 @@ async function resolveTradeRoutes(env, input, provider) {
 }
 
 function fallbackTradeLocationSuggestions(query, limit) {
-  return getTradeQueryCandidates(query, "location", clampInteger(limit, 20, 1, 50)).map((candidate, index) => ({
+  return getTradeQueryCandidates(query, "location", clampInteger(limit, 200, 1, 500)).map((candidate, index) => ({
     id: -1 - index,
     name: candidate,
     displayName: candidate,
@@ -3019,7 +3041,7 @@ async function handleTradeLocationsApi(request, env, url) {
   }
 
   const query = String(url.searchParams.get("q") ?? "").trim().slice(0, 120);
-  const limit = clampInteger(url.searchParams.get("limit"), 20, 1, 50);
+  const limit = clampInteger(url.searchParams.get("limit"), 200, 1, 500);
 
   try {
     const data = await fetchUexTradeLocationSuggestions(env, query, limit);
