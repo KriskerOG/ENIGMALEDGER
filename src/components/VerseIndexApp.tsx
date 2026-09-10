@@ -545,6 +545,35 @@ function normalizeCatalogKey(value: string | undefined): string {
     .trim();
 }
 
+function isSimilarShipName(left: string | undefined, right: string | undefined): boolean {
+  const leftKey = normalizeCatalogKey(left);
+  const rightKey = normalizeCatalogKey(right);
+
+  return Boolean(leftKey && rightKey && (leftKey === rightKey || leftKey.includes(rightKey) || rightKey.includes(leftKey)));
+}
+
+function findBestCargoShipMatch(
+  ships: CargoShipRecord[],
+  shipId?: string,
+  shipName?: string
+): CargoShipRecord | undefined {
+  const byId = shipId ? ships.find((ship) => ship.id === shipId) : undefined;
+  const targetName = shipName ?? byId?.name;
+
+  if (!targetName) {
+    return byId;
+  }
+
+  const exactImageMatch = ships.find(
+    (ship) => normalizeCatalogKey(ship.name) === normalizeCatalogKey(targetName) && Boolean(ship.imageUrl)
+  );
+  const looseImageMatch = ships.find((ship) => isSimilarShipName(ship.name, targetName) && Boolean(ship.imageUrl));
+  const exactMatch = ships.find((ship) => normalizeCatalogKey(ship.name) === normalizeCatalogKey(targetName));
+  const looseMatch = ships.find((ship) => isSimilarShipName(ship.name, targetName));
+
+  return exactImageMatch ?? looseImageMatch ?? byId ?? exactMatch ?? looseMatch;
+}
+
 function manufacturerCodeFromName(manufacturer: string | undefined): string {
   const normalized = normalizeCatalogKey(manufacturer);
   const known: Record<string, string> = {
@@ -997,6 +1026,9 @@ function PilotShipPanel({
   shipCatalogSource: string;
   shipOptions: CargoShipRecord[];
 }) {
+  const [shipPickerOpen, setShipPickerOpen] = useState(false);
+  const [shipSearch, setShipSearch] = useState("");
+  const [activeManufacturer, setActiveManufacturer] = useState("all");
   const shipCargoScu = getShipCargoScu(selectedShip);
   const role = getShipRole(selectedShip);
   const tasks = buildShipTasks(selectedShip, cargoScu);
@@ -1005,6 +1037,38 @@ function PilotShipPanel({
     .filter((route): route is CalculatedTradeRoute => Boolean(route))
     .slice(0, 3);
   const shipGroups = groupShipsByManufacturer(shipOptions);
+  const manufacturerFilters = [
+    {
+      key: "all",
+      label: "All Manufacturers",
+      code: "ALL",
+      count: shipOptions.length
+    },
+    ...shipGroups.map((group) => ({
+      key: group.manufacturer,
+      label: group.manufacturer,
+      code: manufacturerCodeFromName(group.manufacturer),
+      count: group.ships.length
+    }))
+  ];
+  const normalizedShipSearch = normalizeCatalogKey(shipSearch);
+  const visibleShips = shipOptions
+    .filter((ship) => activeManufacturer === "all" || ship.manufacturer === activeManufacturer)
+    .filter((ship) => {
+      if (!normalizedShipSearch) {
+        return true;
+      }
+
+      return [ship.name, ship.manufacturer, ship.role, ship.size]
+        .map((value) => normalizeCatalogKey(value))
+        .some((value) => value.includes(normalizedShipSearch));
+    })
+    .slice(0, 48);
+
+  function selectShip(shipId: string) {
+    onShipChange(shipId);
+    setShipPickerOpen(false);
+  }
 
   return (
     <aside className="pilot-panel">
@@ -1018,28 +1082,101 @@ function PilotShipPanel({
         </button>
       </div>
 
-      <label>
-        <span>Ship</span>
-        <select value={selectedShip?.id ?? ""} onChange={(event) => onShipChange(event.currentTarget.value)}>
-          {shipGroups.map((group) => (
-            <optgroup key={group.manufacturer} label={group.manufacturer}>
-              {group.ships.map((ship) => (
-                <option key={ship.id} value={ship.id}>
-                  {ship.name} - {ship.cargoScu} SCU
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
-      </label>
-
-      <div className="manufacturer-identity">
-        <span className="manufacturer-mark">{selectedShip?.manufacturerCode ?? manufacturerCodeFromName(selectedShip?.manufacturer)}</span>
-        <div>
-          <strong>{selectedShip?.manufacturer ?? "Unknown manufacturer"}</strong>
-          <small>{shipCatalogSource} - {shipOptions.length} cargo ships</small>
+      <section className="ship-picker-shell" aria-label="Ship selection">
+        <div className="selected-ship-hero">
+          {selectedShip?.imageUrl ? (
+            <img src={selectedShip.imageUrl} alt={`${selectedShip.name} ship render`} />
+          ) : (
+            <div className="ship-image-fallback">
+              <span>{selectedShip?.manufacturerCode ?? manufacturerCodeFromName(selectedShip?.manufacturer)}</span>
+            </div>
+          )}
+          <div className="selected-ship-overlay">
+            <span>{selectedShip?.manufacturer ?? "Unknown manufacturer"}</span>
+            <strong>{selectedShip?.name ?? "No ship selected"}</strong>
+            <small>{role} / {shipCargoScu ? `${shipCargoScu} SCU` : "N/A"}</small>
+          </div>
         </div>
-      </div>
+
+        <div className="manufacturer-identity ship-picker-summary">
+          <span className="manufacturer-mark">{selectedShip?.manufacturerCode ?? manufacturerCodeFromName(selectedShip?.manufacturer)}</span>
+          <div>
+            <strong>{selectedShip?.manufacturer ?? "Unknown manufacturer"}</strong>
+            <small>{shipCatalogSource} - {shipOptions.length} cargo ships</small>
+          </div>
+          <button className="ship-picker-toggle" type="button" onClick={() => setShipPickerOpen((value) => !value)}>
+            {shipPickerOpen ? "收起列表" : "选择飞船"}
+          </button>
+        </div>
+
+        {shipPickerOpen ? (
+          <div className="ship-picker-drawer">
+            <div className="manufacturer-rail" aria-label="Manufacturer filters">
+              {manufacturerFilters.map((manufacturer) => (
+                <button
+                  className={activeManufacturer === manufacturer.key ? "manufacturer-filter active" : "manufacturer-filter"}
+                  key={manufacturer.key}
+                  type="button"
+                  onClick={() => setActiveManufacturer(manufacturer.key)}
+                >
+                  <span>{manufacturer.code}</span>
+                  <strong>{manufacturer.label}</strong>
+                  <small>{manufacturer.count}</small>
+                </button>
+              ))}
+            </div>
+
+            <div className="ship-picker-tools">
+              <label>
+                <span>Search ship / vehicle</span>
+                <input
+                  autoComplete="off"
+                  placeholder="C2, Hull, Caterpillar..."
+                  value={shipSearch}
+                  onChange={(event) => setShipSearch(event.currentTarget.value)}
+                />
+              </label>
+            </div>
+
+            <div className="ship-card-grid">
+              {visibleShips.length ? (
+                visibleShips.map((ship) => {
+                  const isActive = selectedShip ? isSimilarShipName(selectedShip.name, ship.name) : false;
+                  const shipCode = ship.manufacturerCode ?? manufacturerCodeFromName(ship.manufacturer);
+
+                  return (
+                    <button
+                      className={isActive ? "ship-choice-card active" : "ship-choice-card"}
+                      key={ship.id}
+                      type="button"
+                      onClick={() => selectShip(ship.id)}
+                    >
+                      <div className="ship-choice-image">
+                        {ship.imageUrl ? (
+                          <img src={ship.imageUrl} alt={`${ship.name} ship render`} loading="lazy" />
+                        ) : (
+                          <span>{shipCode}</span>
+                        )}
+                      </div>
+                      <div className="ship-choice-meta">
+                        <span>{ship.manufacturer}</span>
+                        <strong>{ship.name}</strong>
+                        <small>{getShipRole(ship)}</small>
+                      </div>
+                      <div className="ship-choice-stats">
+                        <span>{getShipCargoScu(ship)} SCU</span>
+                        <span>{ship.maxContainerSize ? `${ship.maxContainerSize} SCU box` : ship.size ?? "cargo"}</span>
+                      </div>
+                    </button>
+                  );
+                })
+              ) : (
+                <div className="ship-picker-empty">No matching cargo-capable ship in the current catalog.</div>
+              )}
+            </div>
+          </div>
+        ) : null}
+      </section>
 
       <div className="pilot-metrics">
         <div>
@@ -1426,7 +1563,7 @@ export function VerseIndexApp() {
 
   const selectedShip = useMemo(
     () =>
-      shipOptions.find((ship) => ship.id === selectedShipId) ??
+      findBestCargoShipMatch(shipOptions, selectedShipId) ??
       shipOptions.find((ship) => normalizeCatalogKey(ship.name).includes("c2 hercules")) ??
       shipOptions[0],
     [selectedShipId, shipOptions]
@@ -1466,9 +1603,9 @@ export function VerseIndexApp() {
   const freshCount = records.filter((record) => record.source.freshness === "fresh").length;
 
   function handleShipChange(shipId: string) {
-    const nextShip = shipOptions.find((ship) => ship.id === shipId);
+    const nextShip = findBestCargoShipMatch(shipOptions, shipId);
 
-    setSelectedShipId(shipId);
+    setSelectedShipId(nextShip?.id ?? shipId);
     setCargoScu(getShipCargoScu(nextShip));
   }
 
@@ -1630,7 +1767,7 @@ export function VerseIndexApp() {
                                 setSelectedId(record.id);
 
                                 const nextShip =
-                                  shipOptions.find((ship) => normalizeCatalogKey(ship.name) === normalizeCatalogKey(record.name)) ??
+                                  findBestCargoShipMatch(shipOptions, undefined, record.name) ??
                                   mapSearchRecordToCargoShip(record);
 
                                 if (nextShip) {
