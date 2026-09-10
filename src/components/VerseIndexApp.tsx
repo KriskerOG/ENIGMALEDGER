@@ -130,6 +130,28 @@ interface TradeApiResponse {
   };
 }
 
+interface TradeLocationApiResponse {
+  data: Array<{
+    id: number;
+    name: string;
+    nameZh?: string;
+    displayName: string;
+    displayNameZh?: string;
+    code?: string;
+    type?: string;
+  }>;
+  meta: {
+    count: number;
+    source: string;
+    warning?: string;
+  };
+}
+
+interface TradeLocationOption {
+  value: string;
+  label?: string;
+}
+
 interface ShipCatalogApiResponse {
   data: CargoShipRecord[];
   meta: {
@@ -171,6 +193,85 @@ interface RouteRecommendation {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+function parsePositiveNumberInput(value: string, fallback = 0, min = 0, max = 100000000): number {
+  const normalized = value.trim().replace(/^0+(?=\d)/, "");
+
+  if (!normalized) {
+    return fallback;
+  }
+
+  const number = Number(normalized);
+
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+
+  return Math.min(max, Math.max(min, Math.floor(number)));
+}
+
+function getNumberInputValue(value: number): string {
+  return value > 0 ? String(value) : "";
+}
+
+function getStaticTradeLocationOptions(): TradeLocationOption[] {
+  return tradeLocationSuggestions.map((location) => ({
+    value: location
+  }));
+}
+
+function compactLocationText(value: string): string | undefined {
+  const compact = value.replace(/\s+/g, "");
+
+  return compact && compact !== value ? compact : undefined;
+}
+
+function buildTradeLocationOptions(data: TradeLocationApiResponse["data"]): TradeLocationOption[] {
+  const options: TradeLocationOption[] = [];
+
+  for (const location of data) {
+    const labelParts = [
+      location.displayNameZh && location.displayNameZh !== location.displayName ? location.displayNameZh : undefined,
+      location.displayName,
+      location.code,
+      location.type
+    ].filter(Boolean);
+
+    options.push({
+      value: location.displayName,
+      label: labelParts.join(" / ")
+    });
+
+    if (location.name !== location.displayName) {
+      options.push({
+        value: location.name,
+        label: labelParts.join(" / ")
+      });
+    }
+
+    const compactName = compactLocationText(location.displayName);
+
+    if (compactName) {
+      options.push({
+        value: compactName,
+        label: labelParts.join(" / ")
+      });
+    }
+  }
+
+  const seen = new Set<string>();
+
+  return [...options, ...getStaticTradeLocationOptions()].filter((option) => {
+    const key = option.value.toLowerCase();
+
+    if (!option.value || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function formatSearchSourceLabel(source: string): string {
@@ -887,6 +988,41 @@ function getRiskLabel(risk: CalculatedTradeRoute["risk"]): string {
   return "高风险";
 }
 
+function getInventoryStatus(route: CalculatedTradeRoute, cargoScu: number): { label: string; detail: string; tone: "high" | "medium" | "low" } {
+  const availableScu = typeof route.availableScu === "number" && Number.isFinite(route.availableScu) ? route.availableScu : undefined;
+  const updatedAt = route.source.sourceUpdatedAt ? `更新 ${route.source.sourceUpdatedAt}` : "更新时间未知";
+
+  if (availableScu === undefined) {
+    return {
+      label: "库存可信度：中",
+      detail: `${updatedAt} / UEX 未公开库存量`,
+      tone: "medium"
+    };
+  }
+
+  if (availableScu < cargoScu || availableScu < route.purchasableScu * 1.1) {
+    return {
+      label: "低库存风险",
+      detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
+      tone: "low"
+    };
+  }
+
+  if (route.source.freshness === "stale" || availableScu < cargoScu * 2) {
+    return {
+      label: "库存可信度：中",
+      detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
+      tone: "medium"
+    };
+  }
+
+  return {
+    label: "库存可信度：高",
+    detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
+    tone: "high"
+  };
+}
+
 function scoreStableRoute(route: CalculatedTradeRoute, cargoScu: number): number {
   const margin = typeof route.marginPercent === "number" ? route.marginPercent : 0;
   const supplyScore = Math.min(16, getSupplyCoverage(route, cargoScu) * 10);
@@ -1020,6 +1156,7 @@ function NewPlayerRouteGuide({
       <div className="new-player-card-grid">
         {recommendations.map((recommendation) => {
           const route = recommendation.route;
+          const inventoryStatus = route ? getInventoryStatus(route, cargoScu) : undefined;
 
           return (
             <article className={`new-player-card ${recommendation.kind}`} key={recommendation.kind}>
@@ -1060,6 +1197,7 @@ function NewPlayerRouteGuide({
                     )}
                     <span>{getRouteKindLabel(route)}</span>
                     <span>{route.source.freshness}</span>
+                    {inventoryStatus ? <span className={`inventory-pill ${inventoryStatus.tone}`}>{inventoryStatus.label}</span> : null}
                   </div>
                 </>
               ) : (
@@ -1087,8 +1225,10 @@ function PilotShipPanel({
   onCargoChange,
   onContainerSizeChange,
   onDestinationChange,
+  onDestinationFocus,
   onOpenTrade,
   onOriginChange,
+  onOriginFocus,
   onRouteModeChange,
   onShipChange,
   onStopCountChange,
@@ -1108,8 +1248,10 @@ function PilotShipPanel({
   onCargoChange: (value: number) => void;
   onContainerSizeChange: (value: number) => void;
   onDestinationChange: (value: string) => void;
+  onDestinationFocus: () => void;
   onOpenTrade: () => void;
   onOriginChange: (value: string) => void;
+  onOriginFocus: () => void;
   onRouteModeChange: (value: TradeRouteMode) => void;
   onShipChange: (shipId: string) => void;
   onStopCountChange: (value: number) => void;
@@ -1306,8 +1448,8 @@ function PilotShipPanel({
             min={0}
             max={10000}
             type="number"
-            value={cargoScu}
-            onChange={(event) => onCargoChange(Number(event.currentTarget.value))}
+            value={getNumberInputValue(cargoScu)}
+            onChange={(event) => onCargoChange(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 10000))}
           />
         </label>
         <label>
@@ -1316,8 +1458,8 @@ function PilotShipPanel({
             min={0}
             step={1000}
             type="number"
-            value={budgetUec}
-            onChange={(event) => onBudgetChange(Number(event.currentTarget.value))}
+            value={getNumberInputValue(budgetUec)}
+            onChange={(event) => onBudgetChange(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000000))}
           />
         </label>
       </div>
@@ -1329,6 +1471,7 @@ function PilotShipPanel({
             autoComplete="off"
             list="trade-location-suggestions"
             value={origin}
+            onFocus={onOriginFocus}
             onChange={(event) => onOriginChange(event.currentTarget.value)}
           />
         </label>
@@ -1339,6 +1482,7 @@ function PilotShipPanel({
             list="trade-location-suggestions"
             placeholder="Any profitable destination"
             value={destination}
+            onFocus={onDestinationFocus}
             onChange={(event) => onDestinationChange(event.currentTarget.value)}
           />
         </label>
@@ -1436,10 +1580,13 @@ export function VerseIndexApp() {
   const [budgetUec, setBudgetUec] = useState(750000);
   const [tradeOrigin, setTradeOrigin] = useState(DEFAULT_TRADE_ORIGIN);
   const [tradeDestination, setTradeDestination] = useState("");
+  const [activeTradeLocationField, setActiveTradeLocationField] = useState<"origin" | "destination">("origin");
+  const [tradeLocationOptions, setTradeLocationOptions] = useState<TradeLocationOption[]>(() => getStaticTradeLocationOptions());
   const [routeMode, setRouteMode] = useState<TradeRouteMode>("mixed");
   const [containerSize, setContainerSize] = useState(0);
   const [routeStopCount, setRouteStopCount] = useState(1);
   const [routeRefreshNonce, setRouteRefreshNonce] = useState(0);
+  const [routeSearchNonce, setRouteSearchNonce] = useState(0);
   const routeRefreshConsumedRef = useRef(0);
   const [shipCatalog, setShipCatalog] = useState<CargoShipRecord[]>([]);
   const [shipCatalogSource, setShipCatalogSource] = useState("external catalog");
@@ -1551,6 +1698,44 @@ export function VerseIndexApp() {
 
   useEffect(() => {
     let active = true;
+    const locationQuery = activeTradeLocationField === "origin" ? tradeOrigin : tradeDestination;
+
+    if (locationQuery.trim().length < 2) {
+      setTradeLocationOptions(getStaticTradeLocationOptions());
+      return () => {
+        active = false;
+      };
+    }
+
+    const timer = window.setTimeout(() => {
+      fetch(`/api/trade/locations?q=${encodeURIComponent(locationQuery)}&limit=30`)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`Trade location API ${response.status}`);
+          }
+
+          return response.json() as Promise<TradeLocationApiResponse>;
+        })
+        .then((payload) => {
+          if (active) {
+            setTradeLocationOptions(buildTradeLocationOptions(payload.data));
+          }
+        })
+        .catch(() => {
+          if (active) {
+            setTradeLocationOptions(getStaticTradeLocationOptions());
+          }
+        });
+    }, 220);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [activeTradeLocationField, tradeDestination, tradeOrigin]);
+
+  useEffect(() => {
+    let active = true;
     const refreshNow = routeRefreshNonce !== routeRefreshConsumedRef.current;
     const params = new URLSearchParams({
       origin: tradeOrigin,
@@ -1625,7 +1810,7 @@ export function VerseIndexApp() {
     return () => {
       active = false;
     };
-  }, [budgetUec, cargoScu, containerSize, routeMode, routeRefreshNonce, routeStopCount, tradeDestination, tradeOrigin]);
+  }, [routeRefreshNonce, routeSearchNonce]);
 
   useEffect(() => {
     let active = true;
@@ -1766,8 +1951,8 @@ export function VerseIndexApp() {
       </header>
 
       <datalist id="trade-location-suggestions">
-        {tradeLocationSuggestions.map((location) => (
-          <option key={location} value={location} />
+        {tradeLocationOptions.map((location) => (
+          <option key={location.value} value={location.value} label={location.label} />
         ))}
       </datalist>
 
@@ -1975,8 +2160,10 @@ export function VerseIndexApp() {
                 onCargoChange={setCargoScu}
                 onContainerSizeChange={setContainerSize}
                 onDestinationChange={setTradeDestination}
+                onDestinationFocus={() => setActiveTradeLocationField("destination")}
                 onOpenTrade={() => setActivePanel("trade")}
                 onOriginChange={setTradeOrigin}
+                onOriginFocus={() => setActiveTradeLocationField("origin")}
                 onRouteModeChange={setRouteMode}
                 onShipChange={handleShipChange}
                 onStopCountChange={setRouteStopCount}
@@ -2000,9 +2187,14 @@ export function VerseIndexApp() {
                   <p className="eyebrow">COMMERCE</p>
                   <h1>航线收益</h1>
                 </div>
-                <button className="ghost-button sync-button" type="button" onClick={() => setRouteRefreshNonce((value) => value + 1)}>
-                  同步 UEX
-                </button>
+                <div className="planner-actions">
+                  <button className="primary-action" type="button" onClick={() => setRouteSearchNonce((value) => value + 1)}>
+                    搜索航线
+                  </button>
+                  <button className="ghost-button sync-button" type="button" onClick={() => setRouteRefreshNonce((value) => value + 1)}>
+                    同步 UEX
+                  </button>
+                </div>
               </div>
 
               <div className="control-grid trade-controls planner-grid">
@@ -2030,8 +2222,8 @@ export function VerseIndexApp() {
                     max={10000}
                     min={1}
                     type="number"
-                    value={cargoScu}
-                    onChange={(event) => setCargoScu(Number(event.currentTarget.value))}
+                    value={getNumberInputValue(cargoScu)}
+                    onChange={(event) => setCargoScu(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 10000))}
                   />
                 </label>
                 <label>
@@ -2040,6 +2232,7 @@ export function VerseIndexApp() {
                     autoComplete="off"
                     list="trade-location-suggestions"
                     value={tradeOrigin}
+                    onFocus={() => setActiveTradeLocationField("origin")}
                     onChange={(event) => setTradeOrigin(event.currentTarget.value)}
                   />
                 </label>
@@ -2050,6 +2243,7 @@ export function VerseIndexApp() {
                     list="trade-location-suggestions"
                     placeholder="Any destination"
                     value={tradeDestination}
+                    onFocus={() => setActiveTradeLocationField("destination")}
                     onChange={(event) => setTradeDestination(event.currentTarget.value)}
                   />
                 </label>
@@ -2059,8 +2253,8 @@ export function VerseIndexApp() {
                     min={1}
                     step={1000}
                     type="number"
-                    value={budgetUec}
-                    onChange={(event) => setBudgetUec(Number(event.currentTarget.value))}
+                    value={getNumberInputValue(budgetUec)}
+                    onChange={(event) => setBudgetUec(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000000))}
                   />
                 </label>
                 <div className="mode-control">
@@ -2095,7 +2289,7 @@ export function VerseIndexApp() {
                     max={6}
                     type="number"
                     value={routeStopCount}
-                    onChange={(event) => setRouteStopCount(clampRouteStopCount(Number(event.currentTarget.value)))}
+                    onChange={(event) => setRouteStopCount(clampRouteStopCount(parsePositiveNumberInput(event.currentTarget.value, 1, 1, 6)))}
                   />
                 </label>
               </div>
@@ -2143,11 +2337,12 @@ export function VerseIndexApp() {
             </section>
 
             <section className="route-list">
-              {routes.map((route) => {
+              {routes.map((route, routeIndex) => {
                 const hasRouteLegs = (route.legs?.length ?? 0) > 1;
+                const inventoryStatus = getInventoryStatus(route, cargoScu);
 
                 return (
-                  <article className="route-card" key={route.id}>
+                  <article className="route-card" key={`${route.id}-${routeIndex}`}>
                     <header>
                       <h2>{hasRouteLegs ? getRouteKindLabel(route) : formatRouteCommodity(route)}</h2>
                       <span className={`freshness ${route.source.freshness}`}>{route.source.freshness}</span>
@@ -2212,6 +2407,8 @@ export function VerseIndexApp() {
                       {typeof route.availableScu === "number" ? (
                         <span>{formatNumber(route.availableScu)} SCU available</span>
                       ) : null}
+                      <span className={`inventory-pill ${inventoryStatus.tone}`}>{inventoryStatus.label}</span>
+                      <span>{inventoryStatus.detail}</span>
                       <span>{getRouteStationMode(route)}</span>
                       <span>{formatContainerSizes(route)}</span>
                       {typeof route.distanceGm === "number" ? <span>{formatNumber(route.distanceGm)} GM</span> : null}

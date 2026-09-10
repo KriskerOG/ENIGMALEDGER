@@ -71,6 +71,41 @@ const ALIAS_SHIP_PATCHES = {
 const RATE_LIMITS = new Map();
 const UEX_ROUTE_CACHE = new Map();
 const UEX_ROUTE_CACHE_TTL_MS = 15 * 60 * 1000;
+const MANUAL_TRADE_QUERY_ALIAS_PAIRS = [
+  ["特蕾莎", ["Port Tressler"]],
+  ["特蕾莎空间站", ["Port Tressler"]],
+  ["特雷莎", ["Port Tressler"]],
+  ["特雷莎空间站", ["Port Tressler"]],
+  ["特雷斯勒", ["Port Tressler"]],
+  ["特雷斯勒空间站", ["Port Tressler"]],
+  ["炽天使", ["Seraphim Station"]],
+  ["炽天使空间站", ["Seraphim Station"]],
+  ["地球网关", ["Terra Gateway"]],
+  ["泰拉网关", ["Terra Gateway"]],
+];
+const MANUAL_ENGLISH_TO_CHINESE_PAIRS = [
+  ["Admin", "Admin"],
+  ["Stanton", "斯坦顿"],
+  ["Pyro", "派罗"],
+  ["Nyx", "尼克斯"],
+  ["Crusader", "十字军"],
+  ["Hurston", "赫斯顿"],
+  ["ArcCorp", "弧光星"],
+  ["MicroTech", "微科星"],
+  ["Terra Gateway", "泰拉网关"],
+  ["Terra Gateway (Stanton)", "泰拉网关（斯坦顿）"],
+  ["Terra Gateway (Stanton system)", "泰拉网关（斯坦顿星系）"],
+  ["Port Tressler", "特雷斯勒空间站"],
+  ["Seraphim", "炽天使"],
+  ["Seraphim Station", "炽天使空间站"],
+  ["New Babbage", "新巴贝奇"],
+  ["Lorville", "洛维尔"],
+  ["Area 18", "18 区"],
+  ["Area18", "18 区"],
+  ["Levski", "列夫斯基"],
+  ["Delamar", "戴玛尔"],
+  ["Bloom", "盛放星"],
+];
 const WIKI_SHIP_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const PARATRANZ_TERMS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PARATRANZ_TERMS_PAGE_SIZE = 100;
@@ -1783,6 +1818,41 @@ function normalizeTradeAliasText(value) {
   return normalizeRuntimeAliasText(value).replace(/\s+/g, " ").trim();
 }
 
+function getManualTradeQueryAliases(query) {
+  const normalizedQuery = normalizeTradeAliasText(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  return MANUAL_TRADE_QUERY_ALIAS_PAIRS.find(([alias]) => normalizeTradeAliasText(alias) === normalizedQuery)?.[1] ?? [];
+}
+
+function getManualEnglishToChinese(value) {
+  const normalizedValue = normalizeTradeAliasText(value);
+
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  return MANUAL_ENGLISH_TO_CHINESE_PAIRS.find(([english]) => normalizeTradeAliasText(english) === normalizedValue)?.[1];
+}
+
+function getLooseLocationQueryVariants(query) {
+  const trimmed = String(query ?? "").trim();
+
+  if (!trimmed) {
+    return [];
+  }
+
+  return uniqueStrings([
+    trimmed.replace(/([a-z])([A-Z])/g, "$1 $2"),
+    trimmed.replace(/\b(port)(tressler)\b/gi, "$1 $2"),
+    trimmed.replace(/\b(terra|stanton|pyro|nyx)(gateway)\b/gi, "$1 $2"),
+    trimmed.replace(/\b(area)(18)\b/gi, "$1 $2"),
+  ]).filter((candidate) => normalizeTradeAliasText(candidate) !== normalizeTradeAliasText(trimmed));
+}
+
 function levenshteinDistance(left, right) {
   const a = Array.from(left);
   const b = Array.from(right);
@@ -1837,7 +1907,13 @@ function scoreTradeAlias(alias, purpose = "any") {
   }
 
   if (String(alias.zh ?? "").length <= 18) {
-    score += 4;
+    score += 10;
+  } else if (String(alias.zh ?? "").length > 32) {
+    score -= 18;
+  }
+
+  if (/[\n\r]|https?:\/\//.test(String(alias.zh ?? ""))) {
+    score -= 30;
   }
 
   return score;
@@ -1903,8 +1979,10 @@ function getTradeQueryCandidates(query, purpose = "any", limit = 8) {
     .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
     .sort((left, right) => right.score - left.score || String(left.alias.en ?? "").length - String(right.alias.en ?? "").length)
     .map((item) => item.alias);
+  const manualAliases = getManualTradeQueryAliases(trimmed);
+  const looseLocationVariants = purpose === "location" ? getLooseLocationQueryVariants(trimmed) : [];
 
-  return uniqueStrings([trimmed, ...aliases.map((alias) => alias.en)]).slice(0, limit);
+  return uniqueStrings([...manualAliases, trimmed, ...looseLocationVariants, ...aliases.map((alias) => alias.en)]).slice(0, limit);
 }
 
 function resolveTradeQuery(query, purpose = "any") {
@@ -1916,6 +1994,12 @@ function getBestAliasZhForEnglish(value, purpose = "any") {
 
   if (!normalizedValue) {
     return undefined;
+  }
+
+  const manual = getManualEnglishToChinese(value);
+
+  if (manual) {
+    return manual;
   }
 
   const best = getStaticLocalizationAliases()
@@ -2002,13 +2086,32 @@ function buildUexTerminalQueries(origin) {
   const withoutStation = trimmed.replace(/\bstation\b/gi, "").replace(/\s+/g, " ").trim();
   const afterDash = trimmed.split("-").at(-1)?.trim();
 
-  for (const candidate of [trimmed, withoutStation, afterDash, ...getTradeQueryCandidates(trimmed, "location")]) {
+  for (const candidate of [trimmed, withoutStation, afterDash, ...getLooseLocationQueryVariants(trimmed), ...getTradeQueryCandidates(trimmed, "location")]) {
     if (candidate) {
       queries.add(candidate);
     }
   }
 
   return Array.from(queries);
+}
+
+function mapUexTerminalToLocationSuggestion(terminal) {
+  const name = terminal.name ?? terminal.fullname ?? terminal.displayname ?? terminal.nickname ?? terminal.code;
+  const displayName = terminal.displayname ?? terminal.fullname ?? terminal.name ?? terminal.nickname ?? terminal.code;
+
+  if (!terminal.id || !name || !displayName) {
+    return undefined;
+  }
+
+  return {
+    id: terminal.id,
+    name,
+    nameZh: localizeCompositeName(name, "location"),
+    displayName,
+    displayNameZh: localizeCompositeName(displayName, "location"),
+    code: terminal.code ?? undefined,
+    type: terminal.type ?? undefined,
+  };
 }
 
 function toIsoDateFromUnixSeconds(value) {
@@ -2139,6 +2242,42 @@ async function fetchUexOriginTerminal(env, origin) {
   }
 
   return undefined;
+}
+
+async function fetchUexTradeLocationSuggestions(env, query, limit = 20) {
+  const queries = getTradeQueryCandidates(query, "location", 8);
+  const terminalResponses = await Promise.allSettled(
+    queries.map((name) => fetchUexResource(env, "terminals", { name })),
+  );
+  const suggestions = terminalResponses
+    .filter((response) => response.status === "fulfilled")
+    .flatMap((response) => arrayFromData(response.value.data))
+    .filter(
+      (terminal) =>
+        isEnabledFlag(terminal.is_available) &&
+        isEnabledFlag(terminal.is_available_live) &&
+        isEnabledFlag(terminal.is_visible),
+    )
+    .map(mapUexTerminalToLocationSuggestion)
+    .filter(Boolean);
+  const seen = new Set();
+
+  return suggestions
+    .sort((left, right) => {
+      const typeScore = (value) => (value.type === "commodity" ? 0 : 1);
+      return typeScore(left) - typeScore(right) || left.displayName.localeCompare(right.displayName);
+    })
+    .filter((suggestion) => {
+      const key = `${suggestion.id}:${normalizeTradeAliasText(suggestion.displayName)}`;
+
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    })
+    .slice(0, clampInteger(limit, 20, 1, 50));
 }
 
 function buildUexLocationTrail(system, planet, orbit) {
@@ -2778,6 +2917,66 @@ async function resolveTradeRoutes(env, input, provider) {
   };
 }
 
+function fallbackTradeLocationSuggestions(query, limit) {
+  return getTradeQueryCandidates(query, "location", clampInteger(limit, 20, 1, 50)).map((candidate, index) => ({
+    id: -1 - index,
+    name: candidate,
+    displayName: candidate,
+    type: "alias",
+  }));
+}
+
+async function handleTradeLocationsApi(request, env, url) {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
+  }
+
+  const rateLimit = rateLimitRequest(request, "trade-locations", 120, 60);
+
+  if (!rateLimit.allowed) {
+    return jsonResponse(
+      { error: "Too many trade location requests." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
+        },
+      },
+    );
+  }
+
+  const query = String(url.searchParams.get("q") ?? "").trim().slice(0, 120);
+  const limit = clampInteger(url.searchParams.get("limit"), 20, 1, 50);
+
+  try {
+    const data = await fetchUexTradeLocationSuggestions(env, query, limit);
+
+    return jsonResponse({
+      data,
+      meta: {
+        count: data.length,
+        source: "uex",
+        rateLimit: {
+          limit: rateLimit.limit,
+          remaining: rateLimit.remaining,
+          resetAt: new Date(rateLimit.resetAt).toISOString(),
+        },
+      },
+    });
+  } catch (error) {
+    const data = fallbackTradeLocationSuggestions(query, limit);
+
+    return jsonResponse({
+      data,
+      meta: {
+        count: data.length,
+        source: "localization",
+        warning: error instanceof Error ? error.message : "UEX location lookup unavailable.",
+      },
+    });
+  }
+}
+
 async function handleTradeRoutesApi(request, env, url) {
   if (request.method !== "GET") {
     return jsonResponse({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
@@ -3097,6 +3296,10 @@ async function handleApi(request, env, url) {
 
   if (url.pathname === "/api/trade/routes") {
     return handleTradeRoutesApi(request, env, url);
+  }
+
+  if (url.pathname === "/api/trade/locations") {
+    return handleTradeLocationsApi(request, env, url);
   }
 
   if (url.pathname === "/api/trade/ships") {

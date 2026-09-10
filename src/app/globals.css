@@ -239,6 +239,27 @@ h2 {
   margin-bottom: 0;
 }
 
+.planner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.primary-action {
+  min-height: 42px;
+  border: 1px solid rgba(60, 200, 180, 0.52);
+  color: #04100f;
+  background: var(--teal);
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.primary-action:hover {
+  filter: brightness(1.08);
+}
+
 .sync-button {
   min-width: 108px;
   border-color: rgba(214, 168, 79, 0.34);
@@ -667,6 +688,21 @@ button:focus-visible {
   font-size: 12px;
   font-style: normal;
   text-decoration: none;
+}
+
+.source-row .inventory-pill.high {
+  border-color: rgba(80, 220, 130, 0.34);
+  color: var(--green);
+}
+
+.source-row .inventory-pill.medium {
+  border-color: rgba(214, 168, 79, 0.34);
+  color: var(--gold);
+}
+
+.source-row .inventory-pill.low {
+  border-color: rgba(235, 96, 82, 0.42);
+  color: #ff8f84;
 }
 
 .tag-row span {
