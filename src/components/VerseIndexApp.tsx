@@ -747,6 +747,26 @@ function getRouteLegCount(route: CalculatedTradeRoute): number {
   return route.legs?.length ?? 1;
 }
 
+function getRouteSystemName(location: string | undefined): string {
+  return String(location ?? "")
+    .split("/")
+    .at(0)
+    ?.trim()
+    .toLowerCase() ?? "";
+}
+
+function routeSegmentIsInStanton(route: Pick<CalculatedTradeRoute, "originLocation" | "destinationLocation">): boolean {
+  return getRouteSystemName(route.originLocation) === "stanton" && getRouteSystemName(route.destinationLocation) === "stanton";
+}
+
+function routeIsStantonOnly(route: CalculatedTradeRoute): boolean {
+  if (route.legs?.length) {
+    return route.legs.every(routeSegmentIsInStanton);
+  }
+
+  return routeSegmentIsInStanton(route);
+}
+
 function getRiskScore(route: CalculatedTradeRoute): number {
   if (route.risk === "Low") {
     return 18;
@@ -849,7 +869,7 @@ function buildRecommendationReason(kind: RouteRecommendationKind, route: Calcula
   const containerText = route.containerSizes?.length ? `${formatContainerSizes(route)} 箱型` : "箱型未公开";
 
   if (kind === "stable") {
-    return `${getRiskLabel(route.risk)}，${stationMode}，${supplyCoverage >= 1 ? "供应量够装满当前货仓" : "按可买货量部分装载"}，${containerText}。`;
+    return `Stanton 星系内，${getRiskLabel(route.risk)}，${stationMode}，${supplyCoverage >= 1 ? "供应量够装满当前货仓" : "按可买货量部分装载"}，${containerText}。`;
   }
 
   if (kind === "hot") {
@@ -861,7 +881,8 @@ function buildRecommendationReason(kind: RouteRecommendationKind, route: Calcula
 
 function buildRouteRecommendations(routes: CalculatedTradeRoute[], cargoScu: number): RouteRecommendation[] {
   const usedRouteIds = new Set<string>();
-  const stable = pickRoute(routes, usedRouteIds, (route) => scoreStableRoute(route, cargoScu));
+  const stableRoutes = routes.filter(routeIsStantonOnly);
+  const stable = pickRoute(stableRoutes, usedRouteIds, (route) => scoreStableRoute(route, cargoScu));
   const hot = pickRoute(routes, usedRouteIds, (route) => scoreHotRoute(route, cargoScu));
   const profit = pickRoute(routes, new Set(), (route) => route.totalProfit);
   const recommendations: Array<Omit<RouteRecommendation, "reason">> = [
@@ -989,7 +1010,7 @@ function NewPlayerRouteGuide({
 
       <div className="recommendation-footnote">
         <span>Source {routeSource}</span>
-        <span>稳定挣钱优先低风险、供应量、站点类型、数据新鲜度和公开箱型。</span>
+        <span>稳定挣钱只看 Stanton 星系内航线，并优先低风险、供应量、站点类型、数据新鲜度和公开箱型。</span>
       </div>
     </section>
   );
