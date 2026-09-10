@@ -122,6 +122,7 @@ export interface UexTradeRoutesResult {
 
 const uexRouteCache = new Map<string, CachedUexRoutes>();
 let uexTerminalCache: CachedUexTerminals | undefined;
+const aliasZhByEnglishCache = new Map<"location" | "commodity" | "any", Map<string, string>>();
 
 const manualTradeQueryAliasPairs: Array<[string, string[]]> = [
   ["特蕾莎", ["Port Tressler"]],
@@ -218,6 +219,44 @@ function getManualEnglishToChinese(value: string | undefined): string | undefine
   }
 
   return manualEnglishToChinesePairs.find(([english]) => normalizeTradeAliasText(english) === normalizedValue)?.[1];
+}
+
+function getAliasZhByEnglishMap(purpose: "location" | "commodity" | "any" = "any"): Map<string, string> {
+  const cached = aliasZhByEnglishCache.get(purpose);
+
+  if (cached) {
+    return cached;
+  }
+
+  const scored = new Map<string, { zh: string; score: number }>();
+
+  for (const [english, chinese] of manualEnglishToChinesePairs) {
+    const key = normalizeTradeAliasText(english);
+
+    if (key) {
+      scored.set(key, { zh: chinese, score: 10_000 });
+    }
+  }
+
+  for (const alias of localizationAliases) {
+    const key = normalizeTradeAliasText(alias.en);
+
+    if (!key) {
+      continue;
+    }
+
+    const score = scoreTradeAlias(alias, purpose);
+    const existing = scored.get(key);
+
+    if (!existing || score > existing.score || (score === existing.score && alias.zh.length < existing.zh.length)) {
+      scored.set(key, { zh: alias.zh, score });
+    }
+  }
+
+  const aliases = new Map(Array.from(scored.entries()).map(([key, value]) => [key, value.zh]));
+  aliasZhByEnglishCache.set(purpose, aliases);
+
+  return aliases;
 }
 
 function getLooseLocationQueryVariants(query: string | undefined): string[] {
@@ -365,13 +404,15 @@ export function getTradeQueryCandidates(
     return [];
   }
 
-  const aliases = [
-    ...findLocalizationAliases(trimmed, limit * 2),
-    ...getFuzzyTradeAliases(trimmed, purpose, limit)
-  ]
-    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
-    .sort((left, right) => right.score - left.score || left.alias.en.length - right.alias.en.length)
-    .map((item) => item.alias);
+  const aliases = hasCjk(trimmed)
+    ? [
+        ...findLocalizationAliases(trimmed, limit * 2),
+        ...getFuzzyTradeAliases(trimmed, purpose, limit)
+      ]
+        .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
+        .sort((left, right) => right.score - left.score || left.alias.en.length - right.alias.en.length)
+        .map((item) => item.alias)
+    : [];
   const manualAliases = getManualTradeQueryAliases(trimmed);
   const looseLocationVariants = purpose === "location" ? getLooseLocationQueryVariants(trimmed) : [];
 
@@ -389,18 +430,7 @@ function getBestAliasZhForEnglish(value: string | undefined, purpose: "location"
     return undefined;
   }
 
-  const manual = getManualEnglishToChinese(value);
-
-  if (manual) {
-    return manual;
-  }
-
-  const best = localizationAliases
-    .filter((alias) => normalizeTradeAliasText(alias.en) === normalizedValue)
-    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
-    .sort((left, right) => right.score - left.score || left.alias.zh.length - right.alias.zh.length)[0]?.alias;
-
-  return best?.zh;
+  return getAliasZhByEnglishMap(purpose).get(normalizedValue);
 }
 
 function localizeCompositeName(value: string | undefined, purpose: "location" | "commodity" | "any" = "any"): string | undefined {
@@ -631,7 +661,13 @@ async function fetchAllUexTerminals(refresh = false): Promise<UexTerminal[]> {
   return terminals;
 }
 
-async function fetchOriginTerminal(origin: string): Promise<UexTerminal | undefined> {
+async function fetchOriginTerminal(origin: string, refresh = false): Promise<UexTerminal | undefined> {
+  const staticMatch = pickFuzzyTerminal(getStaticUexTradeTerminals(), origin);
+
+  if (!refresh && staticMatch) {
+    return staticMatch;
+  }
+
   for (const query of buildTerminalQueries(origin)) {
     const terminalResponse = await fetchUexResource<UexTerminal[]>("terminals", { name: query });
     const originTerminal = pickOriginTerminal(asArray(terminalResponse.data), origin);
@@ -871,7 +907,7 @@ export async function fetchUexTradeRoutes(
     };
   }
 
-  const originTerminal = await fetchOriginTerminal(origin);
+  const originTerminal = await fetchOriginTerminal(origin, input.refresh);
 
   if (!originTerminal) {
     throw new Error(`UEX terminal not found for origin: ${origin}`);

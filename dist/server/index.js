@@ -140,6 +140,7 @@ const SOURCE_VALUES = new Set(["all", "local", "wiki", "database"]);
 const TRADE_SOURCE_VALUES = new Set(["auto", "uex", "sample"]);
 const TRADE_ROUTE_MODES = new Set(["mixed", "space"]);
 const UEX_RESOURCES = new Set(["commodities_routes", "terminals"]);
+const ALIAS_ZH_BY_ENGLISH_CACHE = new Map();
 
 const SECURITY_HEADERS = {
   "Content-Security-Policy": [
@@ -1934,6 +1935,45 @@ function scoreTradeAlias(alias, purpose = "any") {
   return score;
 }
 
+function getAliasZhByEnglishMap(purpose = "any") {
+  const cached = ALIAS_ZH_BY_ENGLISH_CACHE.get(purpose);
+
+  if (cached) {
+    return cached;
+  }
+
+  const scored = new Map();
+
+  for (const [english, chinese] of MANUAL_ENGLISH_TO_CHINESE_PAIRS) {
+    const key = normalizeTradeAliasText(english);
+
+    if (key) {
+      scored.set(key, { zh: chinese, score: 10000 });
+    }
+  }
+
+  for (const alias of getStaticLocalizationAliases()) {
+    const key = normalizeTradeAliasText(alias.en);
+
+    if (!key) {
+      continue;
+    }
+
+    const score = scoreTradeAlias(alias, purpose);
+    const existing = scored.get(key);
+    const zh = String(alias.zh ?? "");
+
+    if (!existing || score > existing.score || (score === existing.score && zh.length < String(existing.zh ?? "").length)) {
+      scored.set(key, { zh, score });
+    }
+  }
+
+  const aliases = new Map(Array.from(scored.entries()).map(([key, value]) => [key, value.zh]));
+  ALIAS_ZH_BY_ENGLISH_CACHE.set(purpose, aliases);
+
+  return aliases;
+}
+
 function getFuzzyTradeAliases(query, purpose = "any", limit = 8) {
   const normalizedQuery = normalizeTradeAliasText(query);
 
@@ -1987,13 +2027,15 @@ function getTradeQueryCandidates(query, purpose = "any", limit = 8) {
     return [];
   }
 
-  const aliases = [
-    ...findLocalizationAliases(trimmed, limit * 2),
-    ...getFuzzyTradeAliases(trimmed, purpose, limit),
-  ]
-    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
-    .sort((left, right) => right.score - left.score || String(left.alias.en ?? "").length - String(right.alias.en ?? "").length)
-    .map((item) => item.alias);
+  const aliases = hasCjkText(trimmed)
+    ? [
+        ...findLocalizationAliases(trimmed, limit * 2),
+        ...getFuzzyTradeAliases(trimmed, purpose, limit),
+      ]
+        .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
+        .sort((left, right) => right.score - left.score || String(left.alias.en ?? "").length - String(right.alias.en ?? "").length)
+        .map((item) => item.alias)
+    : [];
   const manualAliases = getManualTradeQueryAliases(trimmed);
   const looseLocationVariants = purpose === "location" ? getLooseLocationQueryVariants(trimmed) : [];
 
@@ -2011,18 +2053,7 @@ function getBestAliasZhForEnglish(value, purpose = "any") {
     return undefined;
   }
 
-  const manual = getManualEnglishToChinese(value);
-
-  if (manual) {
-    return manual;
-  }
-
-  const best = getStaticLocalizationAliases()
-    .filter((alias) => normalizeTradeAliasText(alias.en) === normalizedValue)
-    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
-    .sort((left, right) => right.score - left.score || String(left.alias.zh ?? "").length - String(right.alias.zh ?? "").length)[0]?.alias;
-
-  return best?.zh;
+  return getAliasZhByEnglishMap(purpose).get(normalizedValue);
 }
 
 function localizeCompositeName(value, purpose = "any") {
@@ -2320,7 +2351,13 @@ async function fetchAllUexTerminals(env, refresh = false) {
   return terminals;
 }
 
-async function fetchUexOriginTerminal(env, origin) {
+async function fetchUexOriginTerminal(env, origin, refresh = false) {
+  const staticMatch = pickFuzzyUexTerminal(getStaticUexTradeTerminals(), origin);
+
+  if (!refresh && staticMatch) {
+    return staticMatch;
+  }
+
   for (const query of buildUexTerminalQueries(origin)) {
     const terminalResponse = await fetchUexResource(env, "terminals", { name: query });
     const originTerminal = pickUexOriginTerminal(arrayFromData(terminalResponse.data), origin);
@@ -2524,7 +2561,7 @@ async function fetchUexTradeRoutes(env, originInput, refresh = false) {
     };
   }
 
-  const originTerminal = await fetchUexOriginTerminal(env, origin);
+  const originTerminal = await fetchUexOriginTerminal(env, origin, refresh);
 
   if (!originTerminal) {
     throw new Error(`UEX terminal not found for origin: ${origin}`);
@@ -3206,6 +3243,7 @@ function handleHealthApi(request) {
       searchRecords: ENIGMA_DATA.searchRecords.length,
       tradeRoutes: ENIGMA_DATA.tradeRoutes.length,
       sourceCatalog: ENIGMA_DATA.sourceCatalog.length,
+      uexTradeLocations: getStaticUexTradeTerminals().length,
     },
   });
 }
