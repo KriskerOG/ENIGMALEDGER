@@ -1771,6 +1771,203 @@ function normalizeUexName(value) {
     .trim();
 }
 
+function normalizeTradeMatchText(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function normalizeTradeAliasText(value) {
+  return normalizeRuntimeAliasText(value).replace(/\s+/g, " ").trim();
+}
+
+function levenshteinDistance(left, right) {
+  const a = Array.from(left);
+  const b = Array.from(right);
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = new Array(b.length + 1).fill(0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+      );
+    }
+
+    for (let j = 0; j <= b.length; j += 1) {
+      previous[j] = current[j];
+    }
+  }
+
+  return previous[b.length];
+}
+
+function getStaticLocalizationAliases() {
+  return Array.isArray(ENIGMA_DATA.localizationAliases) ? ENIGMA_DATA.localizationAliases : [];
+}
+
+function scoreTradeAlias(alias, purpose = "any") {
+  const key = `${alias.key} ${alias.packageId} ${alias.kind}`.toLowerCase();
+  let score = 0;
+
+  if (alias.packageId === "paratranz_terms") {
+    score += 8;
+  }
+
+  if (purpose === "location") {
+    if (/location|stanton|pyro|nyx|transfer|landing|outpost|station|terminal|spaceport/.test(key)) {
+      score += 30;
+    }
+  } else if (purpose === "commodity") {
+    if (/commodit|mineral|resource|harvestable|cargo|goods|item_commodities/.test(key)) {
+      score += 30;
+    }
+  } else if (/location|stanton|pyro|nyx|commodit|mineral|resource|terminal|station|spaceport/.test(key)) {
+    score += 15;
+  }
+
+  if (String(alias.en ?? "").length <= 48) {
+    score += 6;
+  }
+
+  if (String(alias.zh ?? "").length <= 18) {
+    score += 4;
+  }
+
+  return score;
+}
+
+function getFuzzyTradeAliases(query, purpose = "any", limit = 8) {
+  const normalizedQuery = normalizeTradeAliasText(query);
+
+  if (!hasCjkText(normalizedQuery) || Array.from(normalizedQuery).length < 2) {
+    return [];
+  }
+
+  return getStaticLocalizationAliases()
+    .map((alias) => {
+      const zh = normalizeTradeAliasText(alias.zh);
+
+      if (!zh || !hasCjkText(zh)) {
+        return { alias, score: 0 };
+      }
+
+      const distance = levenshteinDistance(normalizedQuery, zh);
+      const firstCharBonus = Array.from(normalizedQuery)[0] === Array.from(zh)[0] ? 16 : 0;
+      const fuzzyScore = distance <= 3 ? 44 - distance * 8 + firstCharBonus : 0;
+
+      return { alias, score: fuzzyScore ? fuzzyScore + scoreTradeAlias(alias, purpose) : 0 };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || String(left.alias.zh ?? "").length - String(right.alias.zh ?? "").length)
+    .slice(0, limit)
+    .map((item) => item.alias);
+}
+
+function uniqueStrings(values) {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    const key = normalizeTradeAliasText(trimmed);
+
+    if (!trimmed || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(trimmed);
+  }
+
+  return result;
+}
+
+function getTradeQueryCandidates(query, purpose = "any", limit = 8) {
+  const trimmed = String(query ?? "").trim();
+
+  if (!trimmed) {
+    return [];
+  }
+
+  const aliases = [
+    ...findLocalizationAliases(trimmed, limit * 2),
+    ...getFuzzyTradeAliases(trimmed, purpose, limit),
+  ]
+    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
+    .sort((left, right) => right.score - left.score || String(left.alias.en ?? "").length - String(right.alias.en ?? "").length)
+    .map((item) => item.alias);
+
+  return uniqueStrings([trimmed, ...aliases.map((alias) => alias.en)]).slice(0, limit);
+}
+
+function resolveTradeQuery(query, purpose = "any") {
+  return getTradeQueryCandidates(query, purpose, 2)[0] ?? String(query ?? "").trim();
+}
+
+function getBestAliasZhForEnglish(value, purpose = "any") {
+  const normalizedValue = normalizeTradeAliasText(value);
+
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  const best = getStaticLocalizationAliases()
+    .filter((alias) => normalizeTradeAliasText(alias.en) === normalizedValue)
+    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
+    .sort((left, right) => right.score - left.score || String(left.alias.zh ?? "").length - String(right.alias.zh ?? "").length)[0]?.alias;
+
+  return best?.zh;
+}
+
+function localizeCompositeName(value, purpose = "any") {
+  const original = String(value ?? "").trim();
+
+  if (!original) {
+    return undefined;
+  }
+
+  const exact = getBestAliasZhForEnglish(original, purpose);
+
+  if (exact) {
+    return exact;
+  }
+
+  if (original.includes(" - ")) {
+    const parts = original.split(" - ");
+    const localizedParts = parts.map((part) => getBestAliasZhForEnglish(part, purpose) ?? part);
+    const localized = localizedParts.join(" - ");
+
+    return localized === original ? undefined : localized;
+  }
+
+  return undefined;
+}
+
+function localizeLocationTrail(value) {
+  const original = String(value ?? "").trim();
+
+  if (!original) {
+    return undefined;
+  }
+
+  const localized = original
+    .split("/")
+    .map((part) => {
+      const trimmed = part.trim();
+      return getBestAliasZhForEnglish(trimmed, "location") ?? trimmed;
+    })
+    .join(" / ");
+
+  return localized === original ? undefined : localized;
+}
+
 function normalizeRouteIdentity(value) {
   return normalizeUexName(value).replace(/\s+/g, "");
 }
@@ -1805,7 +2002,7 @@ function buildUexTerminalQueries(origin) {
   const withoutStation = trimmed.replace(/\bstation\b/gi, "").replace(/\s+/g, " ").trim();
   const afterDash = trimmed.split("-").at(-1)?.trim();
 
-  for (const candidate of [trimmed, withoutStation, afterDash]) {
+  for (const candidate of [trimmed, withoutStation, afterDash, ...getTradeQueryCandidates(trimmed, "location")]) {
     if (candidate) {
       queries.add(candidate);
     }
@@ -2020,10 +2217,14 @@ function mapUexRouteToTradeRoute(route, fetchedAt) {
   const gameVersion = [route.game_version_origin, route.game_version_destination].filter(Boolean).join(" / ");
   const originTerminalId = Math.floor(numberOrZero(route.id_terminal_origin));
   const destinationTerminalId = Math.floor(numberOrZero(route.id_terminal_destination));
+  const buyTerminal = route.origin_terminal_name ?? route.origin_terminal_code ?? "Unknown buy terminal";
+  const sellTerminalName = route.destination_terminal_name ?? route.destination_terminal_code ?? "Unknown sell terminal";
+  const sellTerminal = destinationTrail ? `${sellTerminalName} (${destinationTrail})` : sellTerminalName;
 
   return {
     id: `uex-route-${route.id}`,
     commodity: route.commodity_name,
+    commodityZh: localizeCompositeName(route.commodity_name, "commodity"),
     origin: route.origin_terminal_name ?? "Unknown origin",
     originTerminalId: originTerminalId || undefined,
     destinationTerminalId: destinationTerminalId || undefined,
@@ -2034,11 +2235,15 @@ function mapUexRouteToTradeRoute(route, fetchedAt) {
     originTerminalSlug: route.origin_terminal_slug ?? undefined,
     destinationTerminalSlug: route.destination_terminal_slug ?? undefined,
     originLocation: originTrail || undefined,
+    originLocationZh: localizeLocationTrail(originTrail),
     destinationLocation: destinationTrail || undefined,
-    buyTerminal: route.origin_terminal_name ?? route.origin_terminal_code ?? "Unknown buy terminal",
-    sellTerminal: destinationTrail
-      ? `${route.destination_terminal_name ?? route.destination_terminal_code ?? "Unknown sell terminal"} (${destinationTrail})`
-      : (route.destination_terminal_name ?? route.destination_terminal_code ?? "Unknown sell terminal"),
+    destinationLocationZh: localizeLocationTrail(destinationTrail),
+    buyTerminal,
+    buyTerminalZh: localizeCompositeName(buyTerminal, "location"),
+    sellTerminal,
+    sellTerminalZh: destinationTrail
+      ? `${localizeCompositeName(sellTerminalName, "location") ?? sellTerminalName} (${localizeLocationTrail(destinationTrail) ?? destinationTrail})`
+      : localizeCompositeName(sellTerminalName, "location"),
     buyPrice,
     sellPrice,
     availableScu,
@@ -2154,13 +2359,13 @@ async function fetchUexTradeRoutesByTerminalId(env, terminalId, label, refresh =
 }
 
 function routeMatchesText(route, query, fields) {
-  const normalizedQuery = normalizeUexName(query);
+  const normalizedQuery = normalizeTradeMatchText(query);
 
   if (!normalizedQuery) {
     return true;
   }
 
-  return fields.some((field) => normalizeUexName(field).includes(normalizedQuery));
+  return fields.some((field) => normalizeTradeMatchText(field).includes(normalizedQuery));
 }
 
 function routeMatchesTradeInput(route, input) {
@@ -2168,13 +2373,17 @@ function routeMatchesTradeInput(route, input) {
     routeMatchesText(route, input.origin?.trim(), [
       route.origin,
       route.buyTerminal,
+      route.buyTerminalZh ?? "",
       route.originLocation ?? "",
+      route.originLocationZh ?? "",
       route.originTerminalName ?? "",
       route.originTerminalCode ?? "",
     ]) &&
     routeMatchesText(route, input.destination?.trim(), [
       route.sellTerminal,
+      route.sellTerminalZh ?? "",
       route.destinationLocation ?? "",
+      route.destinationLocationZh ?? "",
       route.destinationTerminalName ?? "",
       route.destinationTerminalCode ?? "",
     ]) &&
@@ -2249,6 +2458,30 @@ function intersectLegContainerSizes(legs) {
   return sizes.reduce((shared, legSizes) => shared.filter((size) => legSizes.includes(size)));
 }
 
+function getCycleRouteLabel(legCount) {
+  if (legCount <= 2) {
+    return "2 次停泊往返航线";
+  }
+
+  if (legCount === 3) {
+    return "3 次停泊三角航线";
+  }
+
+  if (legCount === 4) {
+    return "4 次停泊四角航线";
+  }
+
+  if (legCount === 5) {
+    return "5 次停泊五角航线";
+  }
+
+  if (legCount === 6) {
+    return "6 次停泊六角航线";
+  }
+
+  return `${legCount} 次停泊多角航线`;
+}
+
 function calculateTradeRoutePlan(rawLegs, input) {
   const calculatedLegs = [];
   const cargoScu = clampInteger(input.cargoScu, 696, 0, 10000);
@@ -2279,18 +2512,21 @@ function calculateTradeRoutePlan(rawLegs, input) {
   const totalTransportedScu = calculatedLegs.reduce((sum, leg) => sum + leg.purchasableScu, 0);
   const peakCapital = Math.max(...calculatedLegs.map((leg) => leg.capitalUsed));
   const distanceGm = calculatedLegs.reduce((sum, leg) => sum + (leg.distanceGm ?? 0), 0) || undefined;
-  const routeKind = calculatedLegs.length >= 3 ? "triangle" : "cycle";
+  const routeKind = calculatedLegs.length === 3 ? "triangle" : "cycle";
 
   return {
     ...firstLeg,
     id: `${routeKind}-${calculatedLegs.map((leg) => leg.id).join("-")}`,
     commodity: calculatedLegs.map((leg) => leg.commodity).join(" -> "),
+    commodityZh: calculatedLegs.map((leg) => leg.commodityZh ?? leg.commodity).join(" -> "),
     sellTerminal: calculatedLegs[calculatedLegs.length - 1]?.sellTerminal ?? firstLeg.sellTerminal,
+    sellTerminalZh: calculatedLegs[calculatedLegs.length - 1]?.sellTerminalZh,
     destinationTerminalId: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalId,
     destinationTerminalCode: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalCode,
     destinationTerminalName: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalName,
     destinationTerminalSlug: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalSlug,
     destinationLocation: calculatedLegs[calculatedLegs.length - 1]?.destinationLocation,
+    destinationLocationZh: calculatedLegs[calculatedLegs.length - 1]?.destinationLocationZh,
     availableScu: Math.min(...calculatedLegs.map((leg) => leg.availableScu ?? leg.purchasableScu)),
     distanceGm,
     marginPercent: peakCapital > 0 ? (totalProfit / peakCapital) * 100 : undefined,
@@ -2305,7 +2541,7 @@ function calculateTradeRoutePlan(rawLegs, input) {
     destinationHasDockingPort: calculatedLegs[calculatedLegs.length - 1]?.destinationHasDockingPort,
     risk: combineRisk(calculatedLegs),
     routeKind,
-    routePlanLabel: routeKind === "triangle" ? "三角循环航线" : "往返循环航线",
+    routePlanLabel: getCycleRouteLabel(calculatedLegs.length),
     legs: calculatedLegs,
     purchasableScu: totalTransportedScu,
     capitalUsed: peakCapital,
@@ -2370,130 +2606,106 @@ async function resolveUexLoopRoutes(env, input) {
   const originRoutes = await fetchUexTradeRoutes(env, input.origin, input.refresh);
   const budgetUec = clampInteger(input.budgetUec, 750000, 0, 100000000);
   const requestedLimit = clampInteger(input.limit, 10, 1, 200);
+  const stopCount = clampInteger(input.stopCount, 2, 2, 6);
+  const firstLegDestination =
+    input.destination && !isSameTradeEndpoint(input.origin, input.destination) ? resolveTradeQuery(input.destination, "location") : undefined;
   const leg1Candidates = calculateTradeRoutes(
     {
+      destination: firstLegDestination,
       cargoScu: input.cargoScu,
-      budgetUec: input.budgetUec,
+      budgetUec,
       limit: 24,
       routeMode: input.routeMode,
       containerSize: input.containerSize,
     },
     originRoutes.routes,
   ).filter((route) => route.destinationTerminalId);
-  const scannedFirstLegs = leg1Candidates.slice(0, 12);
-  const secondLegResults = await Promise.allSettled(
-    scannedFirstLegs.map((route) =>
-      fetchUexTradeRoutesByTerminalId(
-        env,
-        route.destinationTerminalId ?? 0,
-        route.destinationTerminalName ?? route.sellTerminal,
-        input.refresh,
-      ),
-    ),
-  );
   const plans = [];
-  const thirdLegPairs = [];
   let upstreamCount = originRoutes.routes.length;
+  let paths = leg1Candidates.slice(0, 12).map((route) => [route]);
 
-  secondLegResults.forEach((result, index) => {
-    if (result.status !== "fulfilled") {
-      return;
-    }
+  for (let legIndex = 2; legIndex <= stopCount && paths.length; legIndex += 1) {
+    const terminalRequests = new Map();
 
-    const leg1 = scannedFirstLegs[index];
-    const secondRoutes = result.value.routes;
-    const afterLeg1Budget = budgetUec + leg1.totalProfit;
-    upstreamCount += secondRoutes.length;
-    const secondCandidates = calculateTradeRoutes(
-      {
-        cargoScu: input.cargoScu,
-        budgetUec: afterLeg1Budget,
-        limit: 10,
-        routeMode: input.routeMode,
-        containerSize: input.containerSize,
-      },
-      secondRoutes,
-    );
+    for (const path of paths) {
+      const lastLeg = path.at(-1);
+      const terminalId = lastLeg?.destinationTerminalId;
 
-    for (const returnLeg of secondCandidates
-      .filter((route) => routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal))
-      .slice(0, 2)) {
-      const plan = calculateTradeRoutePlan([leg1, returnLeg], input);
-
-      if (plan) {
-        plans.push(plan);
+      if (!terminalId) {
+        continue;
       }
+
+      const request = terminalRequests.get(terminalId) ?? {
+        label: lastLeg.destinationTerminalName ?? lastLeg.sellTerminal,
+        paths: [],
+      };
+
+      request.paths.push(path);
+      terminalRequests.set(terminalId, request);
     }
 
-    for (const leg2 of secondCandidates
-      .filter((route) => !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal))
-      .filter((route) => route.destinationTerminalId && route.destinationTerminalId !== leg1.destinationTerminalId)
-      .slice(0, 6)) {
-      thirdLegPairs.push({ leg1, leg2, score: leg1.totalProfit + leg2.totalProfit });
-    }
-  });
+    const routeResults = await Promise.allSettled(
+      Array.from(terminalRequests.entries()).map(async ([terminalId, request]) => ({
+        terminalId,
+        result: await fetchUexTradeRoutesByTerminalId(env, terminalId, request.label, input.refresh),
+      })),
+    );
+    const routeResultByTerminal = new Map(
+      routeResults.filter((result) => result.status === "fulfilled").map((result) => [result.value.terminalId, result.value.result]),
+    );
+    const nextPaths = [];
+    const isFinalLeg = legIndex === stopCount;
 
-  const thirdLegRequests = new Map();
+    for (const [terminalId, request] of terminalRequests) {
+      const routeResult = routeResultByTerminal.get(terminalId);
 
-  for (const { leg1, leg2 } of thirdLegPairs
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 24)) {
-    const destinationTerminalId = leg2.destinationTerminalId;
+      if (!routeResult) {
+        continue;
+      }
 
-    if (!destinationTerminalId) {
-      continue;
-    }
+      upstreamCount += routeResult.routes.length;
 
-    const request = thirdLegRequests.get(destinationTerminalId) ?? {
-      label: leg2.destinationTerminalName ?? leg2.sellTerminal,
-      pairs: [],
-    };
+      for (const path of request.paths) {
+        const currentBudget = budgetUec + path.reduce((sum, leg) => sum + leg.totalProfit, 0);
+        const visitedTerminalIds = new Set(path.map((leg) => leg.destinationTerminalId).filter(Boolean));
+        const candidates = calculateTradeRoutes(
+          {
+            cargoScu: input.cargoScu,
+            budgetUec: currentBudget,
+            limit: isFinalLeg ? 12 : 8,
+            routeMode: input.routeMode,
+            containerSize: input.containerSize,
+          },
+          routeResult.routes,
+        )
+          .filter((route) =>
+            isFinalLeg
+              ? routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)
+              : Boolean(route.destinationTerminalId) &&
+                !visitedTerminalIds.has(route.destinationTerminalId) &&
+                !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal),
+          )
+          .slice(0, isFinalLeg ? 3 : 4);
 
-    request.pairs.push({ leg1, leg2 });
-    thirdLegRequests.set(destinationTerminalId, request);
-  }
+        for (const nextLeg of candidates) {
+          const nextPath = [...path, nextLeg];
 
-  const thirdLegResults = await Promise.allSettled(
-    Array.from(thirdLegRequests.entries()).map(async ([terminalId, request]) => ({
-      terminalId,
-      result: await fetchUexTradeRoutesByTerminalId(env, terminalId, request.label, input.refresh),
-    })),
-  );
+          if (isFinalLeg) {
+            const plan = calculateTradeRoutePlan(nextPath, input);
 
-  for (const thirdLegResult of thirdLegResults) {
-    if (thirdLegResult.status !== "fulfilled") {
-      continue;
-    }
-
-    const request = thirdLegRequests.get(thirdLegResult.value.terminalId);
-
-    if (!request) {
-      continue;
-    }
-
-    upstreamCount += thirdLegResult.value.result.routes.length;
-
-    for (const pair of request.pairs) {
-      const afterLeg2Budget = budgetUec + pair.leg1.totalProfit + pair.leg2.totalProfit;
-      const returnCandidates = calculateTradeRoutes(
-        {
-          cargoScu: input.cargoScu,
-          budgetUec: afterLeg2Budget,
-          limit: 6,
-          routeMode: input.routeMode,
-          containerSize: input.containerSize,
-        },
-        thirdLegResult.value.result.routes,
-      ).filter((route) => routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal));
-
-      for (const returnLeg of returnCandidates.slice(0, 2)) {
-        const plan = calculateTradeRoutePlan([pair.leg1, pair.leg2, returnLeg], input);
-
-        if (plan) {
-          plans.push(plan);
+            if (plan) {
+              plans.push(plan);
+            }
+          } else {
+            nextPaths.push(nextPath);
+          }
         }
       }
     }
+
+    paths = nextPaths
+      .sort((left, right) => right.reduce((sum, leg) => sum + leg.totalProfit, 0) - left.reduce((sum, leg) => sum + leg.totalProfit, 0))
+      .slice(0, 48);
   }
 
   return {
@@ -2503,21 +2715,30 @@ async function resolveUexLoopRoutes(env, input) {
     source: "uex-loop",
     upstreamCount,
     planMode: "loop",
-    warning: plans.length ? undefined : "No profitable loop route found for the selected origin, budget, cargo, mode, and box size.",
+    stopCount,
+    warning: plans.length ? undefined : `No profitable ${stopCount}-stop loop route found for the selected origin, budget, cargo, mode, and box size.`,
   };
 }
 
 async function resolveTradeRoutes(env, input, provider) {
   if (provider !== "sample") {
     try {
-      if (isSameTradeEndpoint(input.origin, input.destination)) {
-        return await resolveUexLoopRoutes(env, input);
+      const stopCount = clampInteger(input.stopCount, 1, 1, 6);
+      const shouldPlanLoop =
+        stopCount >= 2 || isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
+
+      if (shouldPlanLoop) {
+        return await resolveUexLoopRoutes(env, {
+          ...input,
+          stopCount: stopCount >= 2 ? stopCount : 3,
+        });
       }
 
       const uex = await fetchUexTradeRoutes(env, input.origin, input.refresh);
+      const destination = resolveTradeQuery(input.destination, "location");
       const routes = calculateTradeRoutes(
         {
-          destination: input.destination,
+          destination,
           cargoScu: input.cargoScu,
           budgetUec: input.budgetUec,
           limit: input.limit,
@@ -2532,6 +2753,7 @@ async function resolveTradeRoutes(env, input, provider) {
         source: "uex",
         upstreamCount: uex.routes.length,
         planMode: "direct",
+        stopCount: 1,
       };
     } catch (error) {
       if (provider === "uex") {
@@ -2542,6 +2764,7 @@ async function resolveTradeRoutes(env, input, provider) {
         routes: calculateTradeRoutes(input),
         source: "sample",
         planMode: "direct",
+        stopCount: input.stopCount,
         warning: "UEX API unavailable; using ENIGMA sample trade routes.",
       };
     }
@@ -2551,6 +2774,7 @@ async function resolveTradeRoutes(env, input, provider) {
     routes: calculateTradeRoutes(input),
     source: "sample",
     planMode: "direct",
+    stopCount: input.stopCount,
   };
 }
 
@@ -2581,6 +2805,7 @@ async function handleTradeRoutesApi(request, env, url) {
     limit: url.searchParams.get("limit"),
     routeMode: cleanEnum(url.searchParams.get("routeMode") ?? "mixed", TRADE_ROUTE_MODES, "mixed"),
     containerSize: url.searchParams.get("containerSize"),
+    stopCount: url.searchParams.get("stopCount"),
     refresh: ["1", "true"].includes(url.searchParams.get("refresh") ?? ""),
   };
   const provider = cleanEnum(url.searchParams.get("provider") ?? "auto", TRADE_SOURCE_VALUES, "auto");
@@ -2605,6 +2830,7 @@ async function handleTradeRoutesApi(request, env, url) {
       source: routeResolution.source,
       upstreamCount: routeResolution.upstreamCount,
       planMode: routeResolution.planMode,
+      stopCount: routeResolution.stopCount,
       warning: routeResolution.warning,
       rateLimit: {
         limit: rateLimit.limit,

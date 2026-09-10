@@ -6,8 +6,9 @@ const MAX_LIMIT = 200;
 
 export function normalizeRouteText(value: string | undefined): string {
   return String(value ?? "")
+    .normalize("NFKC")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim();
 }
 
@@ -59,13 +60,17 @@ export function routeMatchesTradeInput(route: TradeRouteRecord, input: Pick<Trad
     routeMatchesText(route, input.origin?.trim(), [
       route.origin,
       route.buyTerminal,
+      route.buyTerminalZh ?? "",
       route.originLocation ?? "",
+      route.originLocationZh ?? "",
       route.originTerminalName ?? "",
       route.originTerminalCode ?? ""
     ]) &&
     routeMatchesText(route, input.destination?.trim(), [
       route.sellTerminal,
+      route.sellTerminalZh ?? "",
       route.destinationLocation ?? "",
+      route.destinationLocationZh ?? "",
       route.destinationTerminalName ?? "",
       route.destinationTerminalCode ?? ""
     ]) &&
@@ -122,6 +127,30 @@ function intersectLegContainerSizes(legs: CalculatedTradeLeg[]): number[] {
   return sizes.reduce((shared, legSizes) => shared.filter((size) => legSizes.includes(size)));
 }
 
+function getCycleRouteLabel(legCount: number): string {
+  if (legCount <= 2) {
+    return "2 次停泊往返航线";
+  }
+
+  if (legCount === 3) {
+    return "3 次停泊三角航线";
+  }
+
+  if (legCount === 4) {
+    return "4 次停泊四角航线";
+  }
+
+  if (legCount === 5) {
+    return "5 次停泊五角航线";
+  }
+
+  if (legCount === 6) {
+    return "6 次停泊六角航线";
+  }
+
+  return `${legCount} 次停泊多角航线`;
+}
+
 export function calculateTradeRoutePlan(
   rawLegs: TradeRouteRecord[],
   input: Pick<TradeRouteInput, "cargoScu" | "budgetUec" | "routeMode" | "containerSize">
@@ -154,18 +183,21 @@ export function calculateTradeRoutePlan(
   const totalTransportedScu = calculatedLegs.reduce((sum, leg) => sum + leg.purchasableScu, 0);
   const peakCapital = Math.max(...calculatedLegs.map((leg) => leg.capitalUsed));
   const distanceGm = calculatedLegs.reduce((sum, leg) => sum + (leg.distanceGm ?? 0), 0) || undefined;
-  const routeKind = calculatedLegs.length >= 3 ? "triangle" : "cycle";
+  const routeKind = calculatedLegs.length === 3 ? "triangle" : "cycle";
 
   return {
     ...firstLeg,
     id: `${routeKind}-${calculatedLegs.map((leg) => leg.id).join("-")}`,
     commodity: calculatedLegs.map((leg) => leg.commodity).join(" -> "),
+    commodityZh: calculatedLegs.map((leg) => leg.commodityZh ?? leg.commodity).join(" -> "),
     sellTerminal: calculatedLegs[calculatedLegs.length - 1]?.sellTerminal ?? firstLeg.sellTerminal,
+    sellTerminalZh: calculatedLegs[calculatedLegs.length - 1]?.sellTerminalZh,
     destinationTerminalId: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalId,
     destinationTerminalCode: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalCode,
     destinationTerminalName: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalName,
     destinationTerminalSlug: calculatedLegs[calculatedLegs.length - 1]?.destinationTerminalSlug,
     destinationLocation: calculatedLegs[calculatedLegs.length - 1]?.destinationLocation,
+    destinationLocationZh: calculatedLegs[calculatedLegs.length - 1]?.destinationLocationZh,
     availableScu: Math.min(...calculatedLegs.map((leg) => leg.availableScu ?? leg.purchasableScu)),
     distanceGm,
     marginPercent: peakCapital > 0 ? (totalProfit / peakCapital) * 100 : undefined,
@@ -180,7 +212,7 @@ export function calculateTradeRoutePlan(
     destinationHasDockingPort: calculatedLegs[calculatedLegs.length - 1]?.destinationHasDockingPort,
     risk: combineRisk(calculatedLegs),
     routeKind,
-    routePlanLabel: routeKind === "triangle" ? "三角循环航线" : "往返循环航线",
+    routePlanLabel: getCycleRouteLabel(calculatedLegs.length),
     legs: calculatedLegs,
     purchasableScu: totalTransportedScu,
     capitalUsed: peakCapital,

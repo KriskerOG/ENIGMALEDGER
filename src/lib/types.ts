@@ -75,6 +75,7 @@ export interface TradeRouteInput {
   limit?: number;
   routeMode?: TradeRouteMode;
   containerSize?: number;
+  stopCount?: number;
 }
 
 export type TradeRouteProvider = "auto" | "uex" | "sample";
@@ -84,9 +85,12 @@ export type TradeRoutePlanKind = "direct" | "cycle" | "triangle";
 export interface TradeRouteRecord {
   id: string;
   commodity: string;
+  commodityZh?: string;
   origin: string;
   buyTerminal: string;
+  buyTerminalZh?: string;
   sellTerminal: string;
+  sellTerminalZh?: string;
   originTerminalId?: number;
   destinationTerminalId?: number;
   originTerminalCode?: string;
@@ -96,7 +100,9 @@ export interface TradeRouteRecord {
   originTerminalSlug?: string;
   destinationTerminalSlug?: string;
   originLocation?: string;
+  originLocationZh?: string;
   destinationLocation?: string;
+  destinationLocationZh?: string;
   buyPrice: number;
   sellPrice: number;
   availableScu?: number;

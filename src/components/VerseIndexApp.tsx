@@ -50,8 +50,8 @@ const navTabs: Array<{ value: ActivePanel; label: string }> = [
 ];
 
 const routeModeOptions: Array<{ value: TradeRouteMode; label: string }> = [
-  { value: "mixed", label: "混合运输" },
-  { value: "space", label: "纯太空" }
+  { value: "mixed", label: "含地面站货运" },
+  { value: "space", label: "纯太空货运" }
 ];
 
 const containerSizeOptions = [0, 1, 2, 4, 8, 16, 24, 32];
@@ -125,6 +125,7 @@ interface TradeApiResponse {
     source: string;
     upstreamCount?: number;
     planMode?: "direct" | "loop";
+    stopCount?: number;
     warning?: string;
   };
 }
@@ -709,13 +710,49 @@ function getRouteModeLabel(routeMode: TradeRouteMode): string {
   return routeModeOptions.find((option) => option.value === routeMode)?.label ?? routeMode;
 }
 
+function getStopCountLabel(stopCount: number): string {
+  if (stopCount <= 1) {
+    return "单段航线";
+  }
+
+  if (stopCount === 2) {
+    return "2 次停泊往返";
+  }
+
+  if (stopCount === 3) {
+    return "3 次停泊三角";
+  }
+
+  if (stopCount === 4) {
+    return "4 次停泊四角";
+  }
+
+  if (stopCount === 5) {
+    return "5 次停泊五角";
+  }
+
+  if (stopCount === 6) {
+    return "6 次停泊六角";
+  }
+
+  return `${stopCount} 次停泊多角`;
+}
+
+function clampRouteStopCount(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+
+  return Math.min(6, Math.max(1, Math.floor(value)));
+}
+
 function getRouteStationMode(route: CalculatedTradeRoute): string {
   if (route.originIsGround || route.destinationIsGround) {
-    return "含地面站";
+    return "含地面站货运";
   }
 
   if (route.originIsSpaceStation && route.destinationIsSpaceStation) {
-    return "全太空";
+    return "纯太空货运";
   }
 
   return "站点类型未公开";
@@ -733,15 +770,37 @@ function getRouteKindLabel(route: CalculatedTradeRoute): string {
   return route.routePlanLabel ?? (route.routeKind === "direct" ? "单段航线" : "循环航线");
 }
 
+function formatBilingualName(primary: string | undefined, localized: string | undefined): string {
+  const en = String(primary ?? "").trim();
+  const zh = String(localized ?? "").trim();
+
+  if (zh && en && zh !== en) {
+    return `${zh} / ${en}`;
+  }
+
+  return en || zh || "Unknown";
+}
+
+function formatRouteCommodity(route: Pick<CalculatedTradeRoute, "commodity" | "commodityZh">): string {
+  return formatBilingualName(route.commodity, route.commodityZh);
+}
+
+function formatRouteTerminal(primary: string | undefined, localized: string | undefined): string {
+  return formatBilingualName(primary, localized);
+}
+
 function formatRoutePath(route: CalculatedTradeRoute): string {
   if (route.legs?.length) {
-    const terminals = [route.legs[0]?.buyTerminal, ...route.legs.map((leg) => leg.destinationTerminalName ?? leg.sellTerminal)]
+    const terminals = [
+      formatRouteTerminal(route.legs[0]?.buyTerminal, route.legs[0]?.buyTerminalZh),
+      ...route.legs.map((leg) => formatRouteTerminal(leg.destinationTerminalName ?? leg.sellTerminal, leg.sellTerminalZh))
+    ]
       .filter((terminal): terminal is string => Boolean(terminal));
 
     return terminals.join(" -> ");
   }
 
-  return `${route.buyTerminal} -> ${route.sellTerminal}`;
+  return `${formatRouteTerminal(route.buyTerminal, route.buyTerminalZh)} -> ${formatRouteTerminal(route.sellTerminal, route.sellTerminalZh)}`;
 }
 
 function getRouteLegCount(route: CalculatedTradeRoute): number {
@@ -928,6 +987,7 @@ function NewPlayerRouteGuide({
   routePlanMode,
   routeSource,
   routes,
+  stopCount,
   selectedShip
 }: {
   budgetUec: number;
@@ -936,6 +996,7 @@ function NewPlayerRouteGuide({
   routePlanMode: "direct" | "loop";
   routeSource: string;
   routes: CalculatedTradeRoute[];
+  stopCount: number;
   selectedShip: CargoShipRecord | undefined;
 }) {
   const recommendations = buildRouteRecommendations(routes, cargoScu);
@@ -951,7 +1012,7 @@ function NewPlayerRouteGuide({
           <span>{selectedShip?.name ?? "No ship"}</span>
           <span>{formatNumber(cargoScu)} SCU</span>
           <span>{formatNumber(budgetUec)} UEC</span>
-          <span>{routePlanMode === "loop" ? "Triangle / Loop" : "Direct"}</span>
+          <span>{routePlanMode === "loop" ? getStopCountLabel(stopCount) : "Direct"}</span>
           <span>{getRouteModeLabel(routeMode)}</span>
         </div>
       </div>
@@ -973,7 +1034,7 @@ function NewPlayerRouteGuide({
               {route ? (
                 <>
                   <p className="recommendation-path">{formatRoutePath(route)}</p>
-                  <div className="recommendation-commodity">{route.commodity}</div>
+                  <div className="recommendation-commodity">{formatRouteCommodity(route)}</div>
                   <div className="recommendation-stats">
                     <div>
                       <span>Profit</span>
@@ -1030,12 +1091,14 @@ function PilotShipPanel({
   onOriginChange,
   onRouteModeChange,
   onShipChange,
+  onStopCountChange,
   origin,
   routeMode,
   routes,
   selectedShip,
   shipCatalogSource,
-  shipOptions
+  shipOptions,
+  stopCount
 }: {
   budgetUec: number;
   cargoScu: number;
@@ -1049,12 +1112,14 @@ function PilotShipPanel({
   onOriginChange: (value: string) => void;
   onRouteModeChange: (value: TradeRouteMode) => void;
   onShipChange: (shipId: string) => void;
+  onStopCountChange: (value: number) => void;
   origin: string;
   routeMode: TradeRouteMode;
   routes: CalculatedTradeRoute[];
   selectedShip: CargoShipRecord | undefined;
   shipCatalogSource: string;
   shipOptions: CargoShipRecord[];
+  stopCount: number;
 }) {
   const [shipPickerOpen, setShipPickerOpen] = useState(false);
   const [shipSearch, setShipSearch] = useState("");
@@ -1300,6 +1365,16 @@ function PilotShipPanel({
             ))}
           </select>
         </label>
+        <label>
+          <span>Stops</span>
+          <input
+            min={1}
+            max={6}
+            type="number"
+            value={stopCount}
+            onChange={(event) => onStopCountChange(clampRouteStopCount(Number(event.currentTarget.value)))}
+          />
+        </label>
       </div>
 
       <div className="task-row" aria-label="Recommended mission types">
@@ -1313,10 +1388,10 @@ function PilotShipPanel({
           recommendedRoutes.map((route) => (
             <article key={route.id}>
               <div>
-                <strong>{route.commodity}</strong>
-                <span>
-                  {`${route.buyTerminal} -> ${route.sellTerminal}`}
-                </span>
+                  <strong>{formatRouteCommodity(route)}</strong>
+                  <span>
+                    {formatRoutePath(route)}
+                  </span>
               </div>
               <em>{formatNumber(route.totalProfit)} UEC</em>
             </article>
@@ -1363,6 +1438,7 @@ export function VerseIndexApp() {
   const [tradeDestination, setTradeDestination] = useState("");
   const [routeMode, setRouteMode] = useState<TradeRouteMode>("mixed");
   const [containerSize, setContainerSize] = useState(0);
+  const [routeStopCount, setRouteStopCount] = useState(1);
   const [routeRefreshNonce, setRouteRefreshNonce] = useState(0);
   const routeRefreshConsumedRef = useRef(0);
   const [shipCatalog, setShipCatalog] = useState<CargoShipRecord[]>([]);
@@ -1484,7 +1560,8 @@ export function VerseIndexApp() {
       limit: String(ROUTE_RESULT_LIMIT),
       provider: "auto",
       routeMode,
-      containerSize: String(containerSize)
+      containerSize: String(containerSize),
+      stopCount: String(routeStopCount)
     });
 
     if (refreshNow) {
@@ -1511,6 +1588,9 @@ export function VerseIndexApp() {
         setRouteSource(payload.meta.source);
         setRouteUpstreamCount(payload.meta.upstreamCount);
         setRoutePlanMode(payload.meta.planMode ?? "direct");
+        if (payload.meta.stopCount && payload.meta.stopCount !== routeStopCount) {
+          setRouteStopCount(clampRouteStopCount(payload.meta.stopCount));
+        }
         setRoutesError(payload.meta.warning);
       })
       .catch(() => {
@@ -1526,7 +1606,8 @@ export function VerseIndexApp() {
             budgetUec,
             limit: ROUTE_RESULT_LIMIT,
             routeMode,
-            containerSize
+            containerSize,
+            stopCount: routeStopCount
           })
         );
         setRouteSource("local fallback");
@@ -1544,7 +1625,7 @@ export function VerseIndexApp() {
     return () => {
       active = false;
     };
-  }, [budgetUec, cargoScu, containerSize, routeMode, routeRefreshNonce, tradeDestination, tradeOrigin]);
+  }, [budgetUec, cargoScu, containerSize, routeMode, routeRefreshNonce, routeStopCount, tradeDestination, tradeOrigin]);
 
   useEffect(() => {
     let active = true;
@@ -1898,12 +1979,14 @@ export function VerseIndexApp() {
                 onOriginChange={setTradeOrigin}
                 onRouteModeChange={setRouteMode}
                 onShipChange={handleShipChange}
+                onStopCountChange={setRouteStopCount}
                 origin={tradeOrigin}
                 routeMode={routeMode}
                 routes={routes}
                 selectedShip={selectedShip}
                 shipCatalogSource={shipsError ? shipCatalogSource : `${shipCatalogSource}${shipsLoading ? " syncing" : ""}`}
                 shipOptions={shipOptions}
+                stopCount={routeStopCount}
               />
             </section>
           </section>
@@ -2005,11 +2088,21 @@ export function VerseIndexApp() {
                     ))}
                   </select>
                 </label>
+                <label>
+                  <span>Stops</span>
+                  <input
+                    min={1}
+                    max={6}
+                    type="number"
+                    value={routeStopCount}
+                    onChange={(event) => setRouteStopCount(clampRouteStopCount(Number(event.currentTarget.value)))}
+                  />
+                </label>
               </div>
 
               <div className="planner-source-line">
                 <span>{selectedShip?.manufacturer ?? "Unknown"} / {getShipRole(selectedShip)}</span>
-                <span>{routePlanMode === "loop" ? "三角/循环规划" : "单段规划"}</span>
+                <span>{routePlanMode === "loop" ? getStopCountLabel(routeStopCount) : "单段规划"}</span>
                 <span>{getRouteModeLabel(routeMode)}</span>
                 <span>{containerSize ? `${containerSize} SCU 箱型` : "自动箱型"}</span>
                 {typeof routeUpstreamCount === "number" ? <span>UEX upstream {routeUpstreamCount}</span> : null}
@@ -2025,6 +2118,7 @@ export function VerseIndexApp() {
                 routePlanMode={routePlanMode}
                 routeSource={routeSource}
                 routes={routes}
+                stopCount={routeStopCount}
                 selectedShip={selectedShip}
               />
 
@@ -2055,11 +2149,11 @@ export function VerseIndexApp() {
                 return (
                   <article className="route-card" key={route.id}>
                     <header>
-                      <h2>{hasRouteLegs ? getRouteKindLabel(route) : route.commodity}</h2>
+                      <h2>{hasRouteLegs ? getRouteKindLabel(route) : formatRouteCommodity(route)}</h2>
                       <span className={`freshness ${route.source.freshness}`}>{route.source.freshness}</span>
                     </header>
                     <p>{formatRoutePath(route)}</p>
-                    {hasRouteLegs ? <div className="route-plan-commodity">{route.commodity}</div> : null}
+                    {hasRouteLegs ? <div className="route-plan-commodity">{formatRouteCommodity(route)}</div> : null}
                     <div className="route-profit">
                       <span>
                         {hasRouteLegs
@@ -2093,8 +2187,13 @@ export function VerseIndexApp() {
                         {route.legs?.map((leg, index) => (
                           <div key={`${leg.id}-${index}`}>
                             <span>{index + 1}</span>
-                            <strong>{leg.commodity}</strong>
-                            <em>{`${leg.buyTerminal} -> ${leg.destinationTerminalName ?? leg.sellTerminal}`}</em>
+                            <strong>{formatRouteCommodity(leg)}</strong>
+                            <em>
+                              {`${formatRouteTerminal(leg.buyTerminal, leg.buyTerminalZh)} -> ${formatRouteTerminal(
+                                leg.destinationTerminalName ?? leg.sellTerminal,
+                                leg.sellTerminalZh
+                              )}`}
+                            </em>
                             <small>{`${formatNumber(leg.purchasableScu)} SCU / ${formatNumber(leg.totalProfit)} UEC`}</small>
                           </div>
                         ))}

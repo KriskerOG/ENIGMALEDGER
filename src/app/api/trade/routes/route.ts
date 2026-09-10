@@ -8,7 +8,7 @@ import {
   isSameTradeEndpoint,
   routeMatchesText
 } from "@/lib/trade";
-import { fetchUexTradeRoutes, fetchUexTradeRoutesByTerminalId } from "@/lib/sources/uex";
+import { fetchUexTradeRoutes, fetchUexTradeRoutesByTerminalId, resolveTradeQuery } from "@/lib/sources/uex";
 import type { CalculatedTradeRoute, TradeRouteProvider, TradeRouteRecord } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -22,6 +22,7 @@ const RouteQuerySchema = z.object({
   provider: z.enum(["auto", "uex", "sample"]).optional().default("auto"),
   routeMode: z.enum(["mixed", "space"]).optional().default("mixed"),
   containerSize: z.coerce.number().int().min(0).max(32).optional().default(0),
+  stopCount: z.coerce.number().int().min(1).max(6).optional().default(1),
   refresh: z
     .string()
     .optional()
@@ -33,6 +34,7 @@ interface RouteResolution {
   source: "uex" | "uex-loop" | "sample";
   upstreamCount?: number;
   planMode?: "direct" | "loop";
+  stopCount?: number;
   warning?: string;
 }
 
@@ -85,133 +87,111 @@ function dedupeRoutePlans(routes: CalculatedTradeRoute[]): CalculatedTradeRoute[
 
 async function resolveUexLoopRoutes(input: z.infer<typeof RouteQuerySchema>): Promise<RouteResolution> {
   const originRoutes = await fetchUexTradeRoutes({ origin: input.origin, refresh: input.refresh });
+  const stopCount = Math.min(Math.max(input.stopCount ?? 2, 2), 6);
+  const budgetUec = Math.max(0, Math.floor(input.budgetUec));
+  const requestedLimit = Math.min(Math.max(input.limit ?? 50, 1), 200);
+  const firstLegDestination = input.destination && !isSameTradeEndpoint(input.origin, input.destination)
+    ? resolveTradeQuery(input.destination, "location")
+    : undefined;
   const leg1Candidates = calculateTradeRoutes(
     {
+      destination: firstLegDestination,
       cargoScu: input.cargoScu,
-      budgetUec: input.budgetUec,
+      budgetUec,
       limit: 24,
       routeMode: input.routeMode,
       containerSize: input.containerSize
     },
     originRoutes.routes
   ).filter((route) => route.destinationTerminalId);
-  const scannedFirstLegs = leg1Candidates.slice(0, 12);
-  const secondLegResults = await Promise.allSettled(
-    scannedFirstLegs.map((route) =>
-      fetchUexTradeRoutesByTerminalId(
-        route.destinationTerminalId ?? 0,
-        route.destinationTerminalName ?? route.sellTerminal,
-        input.refresh
-      )
-    )
-  );
   const plans: CalculatedTradeRoute[] = [];
-  const thirdLegPairs: Array<{ leg1: CalculatedTradeRoute; leg2: CalculatedTradeRoute; score: number }> = [];
   let upstreamCount = originRoutes.routes.length;
+  let paths: CalculatedTradeRoute[][] = leg1Candidates.slice(0, 12).map((route) => [route]);
 
-  secondLegResults.forEach((result, index) => {
-    if (result.status !== "fulfilled") {
-      return;
-    }
+  for (let legIndex = 2; legIndex <= stopCount && paths.length; legIndex += 1) {
+    const terminalRequests = new Map<number, { label: string; paths: CalculatedTradeRoute[][] }>();
 
-    const leg1 = scannedFirstLegs[index];
-    const secondRoutes = result.value.routes;
-    const afterLeg1Budget = input.budgetUec + leg1.totalProfit;
-    upstreamCount += secondRoutes.length;
-    const secondCandidates = calculateTradeRoutes(
-      {
-        cargoScu: input.cargoScu,
-        budgetUec: afterLeg1Budget,
-        limit: 10,
-        routeMode: input.routeMode,
-        containerSize: input.containerSize
-      },
-      secondRoutes
-    );
+    for (const path of paths) {
+      const lastLeg = path.at(-1);
+      const terminalId = lastLeg?.destinationTerminalId;
 
-    for (const returnLeg of secondCandidates.filter((route) => routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)).slice(0, 2)) {
-      const plan = calculateTradeRoutePlan([leg1, returnLeg], input);
-
-      if (plan) {
-        plans.push(plan);
-      }
-    }
-
-    for (const leg2 of secondCandidates
-      .filter((route) => !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal))
-      .filter((route) => route.destinationTerminalId && route.destinationTerminalId !== leg1.destinationTerminalId)
-      .slice(0, 6)) {
-      thirdLegPairs.push({ leg1, leg2, score: leg1.totalProfit + leg2.totalProfit });
-    }
-  });
-
-  const thirdLegRequests = new Map<
-    number,
-    {
-      label: string;
-      pairs: Array<{ leg1: CalculatedTradeRoute; leg2: CalculatedTradeRoute }>;
-    }
-  >();
-
-  for (const { leg1, leg2 } of thirdLegPairs
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 24)) {
-      const destinationTerminalId = leg2.destinationTerminalId;
-
-      if (!destinationTerminalId) {
+      if (!terminalId) {
         continue;
       }
 
-      const request = thirdLegRequests.get(destinationTerminalId) ?? {
-        label: leg2.destinationTerminalName ?? leg2.sellTerminal,
-        pairs: []
+      const request = terminalRequests.get(terminalId) ?? {
+        label: lastLeg.destinationTerminalName ?? lastLeg.sellTerminal,
+        paths: []
       };
 
-      request.pairs.push({ leg1, leg2 });
-      thirdLegRequests.set(destinationTerminalId, request);
-  }
-
-  const thirdLegResults = await Promise.allSettled(
-    Array.from(thirdLegRequests.entries()).map(async ([terminalId, request]) => ({
-      terminalId,
-      result: await fetchUexTradeRoutesByTerminalId(terminalId, request.label, input.refresh)
-    }))
-  );
-
-  for (const thirdLegResult of thirdLegResults) {
-    if (thirdLegResult.status !== "fulfilled") {
-      continue;
+      request.paths.push(path);
+      terminalRequests.set(terminalId, request);
     }
 
-    const request = thirdLegRequests.get(thirdLegResult.value.terminalId);
+    const routeResults = await Promise.allSettled(
+      Array.from(terminalRequests.entries()).map(async ([terminalId, request]) => ({
+        terminalId,
+        result: await fetchUexTradeRoutesByTerminalId(terminalId, request.label, input.refresh)
+      }))
+    );
+    const routeResultByTerminal = new Map(
+      routeResults
+        .filter((result): result is PromiseFulfilledResult<{ terminalId: number; result: Awaited<ReturnType<typeof fetchUexTradeRoutesByTerminalId>> }> => result.status === "fulfilled")
+        .map((result) => [result.value.terminalId, result.value.result])
+    );
+    const nextPaths: CalculatedTradeRoute[][] = [];
+    const isFinalLeg = legIndex === stopCount;
 
-    if (!request) {
-      continue;
-    }
+    for (const [terminalId, request] of terminalRequests) {
+      const routeResult = routeResultByTerminal.get(terminalId);
 
-    upstreamCount += thirdLegResult.value.result.routes.length;
+      if (!routeResult) {
+        continue;
+      }
 
-    for (const pair of request.pairs) {
-      const afterLeg2Budget = input.budgetUec + pair.leg1.totalProfit + pair.leg2.totalProfit;
-      const returnCandidates = calculateTradeRoutes(
+      upstreamCount += routeResult.routes.length;
+
+      for (const path of request.paths) {
+        const currentBudget = budgetUec + path.reduce((sum, leg) => sum + leg.totalProfit, 0);
+        const visitedTerminalIds = new Set(path.map((leg) => leg.destinationTerminalId).filter((id): id is number => Boolean(id)));
+        const candidates = calculateTradeRoutes(
         {
           cargoScu: input.cargoScu,
-          budgetUec: afterLeg2Budget,
-          limit: 6,
+          budgetUec: currentBudget,
+          limit: isFinalLeg ? 12 : 8,
           routeMode: input.routeMode,
           containerSize: input.containerSize
         },
-        thirdLegResult.value.result.routes
-      ).filter((route) => routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal));
+          routeResult.routes
+        )
+          .filter((route) =>
+            isFinalLeg
+              ? routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)
+              : Boolean(route.destinationTerminalId) &&
+                !visitedTerminalIds.has(route.destinationTerminalId ?? 0) &&
+                !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)
+          )
+          .slice(0, isFinalLeg ? 3 : 4);
 
-      for (const returnLeg of returnCandidates.slice(0, 2)) {
-        const plan = calculateTradeRoutePlan([pair.leg1, pair.leg2, returnLeg], input);
+        for (const nextLeg of candidates) {
+          const nextPath = [...path, nextLeg];
 
-        if (plan) {
-          plans.push(plan);
+          if (isFinalLeg) {
+            const plan = calculateTradeRoutePlan(nextPath, input);
+
+            if (plan) {
+              plans.push(plan);
+            }
+          } else {
+            nextPaths.push(nextPath);
+          }
         }
       }
     }
+
+    paths = nextPaths
+      .sort((left, right) => right.reduce((sum, leg) => sum + leg.totalProfit, 0) - left.reduce((sum, leg) => sum + leg.totalProfit, 0))
+      .slice(0, 48);
   }
 
   return {
@@ -221,7 +201,8 @@ async function resolveUexLoopRoutes(input: z.infer<typeof RouteQuerySchema>): Pr
     source: "uex-loop",
     upstreamCount,
     planMode: "loop",
-    warning: plans.length ? undefined : "No profitable loop route found for the selected origin, budget, cargo, mode, and box size."
+    stopCount,
+    warning: plans.length ? undefined : `No profitable ${stopCount}-stop loop route found for the selected origin, budget, cargo, mode, and box size.`
   };
 }
 
@@ -231,14 +212,20 @@ async function resolveRoutes(
 ): Promise<RouteResolution> {
   if (provider !== "sample") {
     try {
-      if (isSameTradeEndpoint(input.origin, input.destination)) {
-        return await resolveUexLoopRoutes(input);
+      const shouldPlanLoop = input.stopCount >= 2 || isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
+
+      if (shouldPlanLoop) {
+        return await resolveUexLoopRoutes({
+          ...input,
+          stopCount: input.stopCount >= 2 ? input.stopCount : 3
+        });
       }
 
       const uex = await fetchUexTradeRoutes({ origin: input.origin, refresh: input.refresh });
+      const destination = resolveTradeQuery(input.destination, "location");
       const routes = calculateTradeRoutes(
         {
-          destination: input.destination,
+          destination,
           cargoScu: input.cargoScu,
           budgetUec: input.budgetUec,
           limit: input.limit,
@@ -252,7 +239,8 @@ async function resolveRoutes(
         routes,
         source: "uex",
         upstreamCount: uex.routes.length,
-        planMode: "direct"
+        planMode: "direct",
+        stopCount: 1
       };
     } catch (error) {
       if (provider === "uex") {
@@ -273,6 +261,7 @@ async function resolveRoutes(
         routes,
         source: "sample",
         planMode: "direct",
+        stopCount: input.stopCount,
         warning: "UEX API unavailable; using ENIGMA sample trade routes."
       };
     }
@@ -289,7 +278,8 @@ async function resolveRoutes(
       containerSize: input.containerSize
     }),
     source: "sample",
-    planMode: "direct"
+    planMode: "direct",
+    stopCount: input.stopCount
   };
 }
 
@@ -353,6 +343,7 @@ export async function GET(request: NextRequest) {
         source: routeResolution.source,
         upstreamCount: routeResolution.upstreamCount,
         planMode: routeResolution.planMode,
+        stopCount: routeResolution.stopCount,
         warning: routeResolution.warning,
         rateLimit: {
           limit: rateLimit.limit,

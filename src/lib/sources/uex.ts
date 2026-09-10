@@ -1,4 +1,10 @@
 import { env } from "../env";
+import {
+  findLocalizationAliases,
+  localizationAliases,
+  normalizeLocalizationAliasText,
+  type LocalizationAlias
+} from "../generated/localization-aliases";
 import type { FreshnessStatus, TradeRouteInput, TradeRouteRecord } from "../types";
 import { fetchJson } from "./http";
 
@@ -129,6 +135,199 @@ function normalizeName(value: string | null | undefined): string {
     .trim();
 }
 
+function normalizeTradeAliasText(value: string | number | null | undefined): string {
+  return normalizeLocalizationAliasText(value).replace(/\s+/g, " ").trim();
+}
+
+function hasCjk(value: string | undefined): boolean {
+  return /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(String(value ?? ""));
+}
+
+function levenshteinDistance(left: string, right: string): number {
+  const a = Array.from(left);
+  const b = Array.from(right);
+  const previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  const current = new Array<number>(b.length + 1).fill(0);
+
+  for (let i = 1; i <= a.length; i += 1) {
+    current[0] = i;
+
+    for (let j = 1; j <= b.length; j += 1) {
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+      );
+    }
+
+    for (let j = 0; j <= b.length; j += 1) {
+      previous[j] = current[j];
+    }
+  }
+
+  return previous[b.length];
+}
+
+function scoreTradeAlias(alias: LocalizationAlias, purpose: "location" | "commodity" | "any" = "any"): number {
+  const key = `${alias.key} ${alias.packageId} ${alias.kind}`.toLowerCase();
+  let score = 0;
+
+  if (alias.packageId === "paratranz_terms") {
+    score += 8;
+  }
+
+  if (purpose === "location") {
+    if (/location|stanton|pyro|nyx|transfer|landing|outpost|station|terminal|spaceport/.test(key)) {
+      score += 30;
+    }
+  } else if (purpose === "commodity") {
+    if (/commodit|mineral|resource|harvestable|cargo|goods|item_commodities/.test(key)) {
+      score += 30;
+    }
+  } else if (/location|stanton|pyro|nyx|commodit|mineral|resource|terminal|station|spaceport/.test(key)) {
+    score += 15;
+  }
+
+  if (alias.en.length <= 48) {
+    score += 6;
+  }
+
+  if (alias.zh.length <= 18) {
+    score += 4;
+  }
+
+  return score;
+}
+
+function getFuzzyTradeAliases(query: string, purpose: "location" | "commodity" | "any", limit = 8): LocalizationAlias[] {
+  const normalizedQuery = normalizeTradeAliasText(query);
+
+  if (!hasCjk(normalizedQuery) || Array.from(normalizedQuery).length < 2) {
+    return [];
+  }
+
+  return localizationAliases
+    .map((alias) => {
+      const zh = normalizeTradeAliasText(alias.zh);
+
+      if (!zh || !hasCjk(zh)) {
+        return { alias, score: 0 };
+      }
+
+      const distance = levenshteinDistance(normalizedQuery, zh);
+      const firstCharBonus = Array.from(normalizedQuery)[0] === Array.from(zh)[0] ? 16 : 0;
+      const fuzzyScore = distance <= 3 ? 44 - distance * 8 + firstCharBonus : 0;
+
+      return { alias, score: fuzzyScore ? fuzzyScore + scoreTradeAlias(alias, purpose) : 0 };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.alias.zh.length - right.alias.zh.length)
+    .slice(0, limit)
+    .map((item) => item.alias);
+}
+
+function uniqueStrings(values: Array<string | undefined>): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const trimmed = String(value ?? "").trim();
+    const key = normalizeTradeAliasText(trimmed);
+
+    if (!trimmed || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    result.push(trimmed);
+  }
+
+  return result;
+}
+
+export function getTradeQueryCandidates(
+  query: string | undefined,
+  purpose: "location" | "commodity" | "any" = "any",
+  limit = 8
+): string[] {
+  const trimmed = String(query ?? "").trim();
+
+  if (!trimmed) {
+    return [];
+  }
+
+  const aliases = [
+    ...findLocalizationAliases(trimmed, limit * 2),
+    ...getFuzzyTradeAliases(trimmed, purpose, limit)
+  ]
+    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
+    .sort((left, right) => right.score - left.score || left.alias.en.length - right.alias.en.length)
+    .map((item) => item.alias);
+
+  return uniqueStrings([trimmed, ...aliases.map((alias) => alias.en)]).slice(0, limit);
+}
+
+export function resolveTradeQuery(query: string | undefined, purpose: "location" | "commodity" | "any" = "any"): string {
+  return getTradeQueryCandidates(query, purpose, 2)[0] ?? String(query ?? "").trim();
+}
+
+function getBestAliasZhForEnglish(value: string | undefined, purpose: "location" | "commodity" | "any" = "any"): string | undefined {
+  const normalizedValue = normalizeTradeAliasText(value);
+
+  if (!normalizedValue) {
+    return undefined;
+  }
+
+  const best = localizationAliases
+    .filter((alias) => normalizeTradeAliasText(alias.en) === normalizedValue)
+    .map((alias) => ({ alias, score: scoreTradeAlias(alias, purpose) }))
+    .sort((left, right) => right.score - left.score || left.alias.zh.length - right.alias.zh.length)[0]?.alias;
+
+  return best?.zh;
+}
+
+function localizeCompositeName(value: string | undefined, purpose: "location" | "commodity" | "any" = "any"): string | undefined {
+  const original = String(value ?? "").trim();
+
+  if (!original) {
+    return undefined;
+  }
+
+  const exact = getBestAliasZhForEnglish(original, purpose);
+
+  if (exact) {
+    return exact;
+  }
+
+  if (original.includes(" - ")) {
+    const parts = original.split(" - ");
+    const localizedParts = parts.map((part) => getBestAliasZhForEnglish(part, purpose) ?? part);
+    const localized = localizedParts.join(" - ");
+
+    return localized === original ? undefined : localized;
+  }
+
+  return undefined;
+}
+
+function localizeLocationTrail(value: string | undefined): string | undefined {
+  const original = String(value ?? "").trim();
+
+  if (!original) {
+    return undefined;
+  }
+
+  const localized = original
+    .split("/")
+    .map((part) => {
+      const trimmed = part.trim();
+      return getBestAliasZhForEnglish(trimmed, "location") ?? trimmed;
+    })
+    .join(" / ");
+
+  return localized === original ? undefined : localized;
+}
+
 function asNumber(value: number | string | null | undefined): number {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
@@ -148,7 +347,7 @@ function buildTerminalQueries(origin: string): string[] {
   const withoutStation = trimmed.replace(/\bstation\b/gi, "").replace(/\s+/g, " ").trim();
   const afterDash = trimmed.split("-").at(-1)?.trim();
 
-  [trimmed, withoutStation, afterDash].forEach((candidate) => {
+  [trimmed, withoutStation, afterDash, ...getTradeQueryCandidates(trimmed, "location")].forEach((candidate) => {
     if (candidate) {
       queries.add(candidate);
     }
@@ -346,10 +545,14 @@ function mapUexRouteToTradeRoute(route: UexCommodityRoute, fetchedAt: string): T
   const destinationContainerSizes = parseContainerSizes(route.container_sizes_destination);
   const sourceUpdatedAt = toIsoDateFromUnixSeconds(route.date_added);
   const gameVersion = [route.game_version_origin, route.game_version_destination].filter(Boolean).join(" / ");
+  const buyTerminal = route.origin_terminal_name ?? route.origin_terminal_code ?? "Unknown buy terminal";
+  const sellTerminalName = route.destination_terminal_name ?? route.destination_terminal_code ?? "Unknown sell terminal";
+  const sellTerminal = destinationTrail ? `${sellTerminalName} (${destinationTrail})` : sellTerminalName;
 
   return {
     id: `uex-route-${route.id}`,
     commodity: route.commodity_name,
+    commodityZh: localizeCompositeName(route.commodity_name, "commodity"),
     origin: route.origin_terminal_name ?? "Unknown origin",
     originTerminalId: asNumber(route.id_terminal_origin) || undefined,
     destinationTerminalId: asNumber(route.id_terminal_destination) || undefined,
@@ -360,11 +563,15 @@ function mapUexRouteToTradeRoute(route: UexCommodityRoute, fetchedAt: string): T
     originTerminalSlug: route.origin_terminal_slug ?? undefined,
     destinationTerminalSlug: route.destination_terminal_slug ?? undefined,
     originLocation: originTrail || undefined,
+    originLocationZh: localizeLocationTrail(originTrail),
     destinationLocation: destinationTrail || undefined,
-    buyTerminal: route.origin_terminal_name ?? route.origin_terminal_code ?? "Unknown buy terminal",
-    sellTerminal: destinationTrail
-      ? `${route.destination_terminal_name ?? route.destination_terminal_code ?? "Unknown sell terminal"} (${destinationTrail})`
-      : (route.destination_terminal_name ?? route.destination_terminal_code ?? "Unknown sell terminal"),
+    destinationLocationZh: localizeLocationTrail(destinationTrail),
+    buyTerminal,
+    buyTerminalZh: localizeCompositeName(buyTerminal, "location"),
+    sellTerminal,
+    sellTerminalZh: destinationTrail
+      ? `${localizeCompositeName(sellTerminalName, "location") ?? sellTerminalName} (${localizeLocationTrail(destinationTrail) ?? destinationTrail})`
+      : localizeCompositeName(sellTerminalName, "location"),
     buyPrice,
     sellPrice,
     availableScu,
