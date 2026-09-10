@@ -362,6 +362,12 @@ function DetailPanel({ record }: { record: SearchRecord | undefined }) {
         {record.summary}
       </p>
 
+      {record.imageUrl ? (
+        <div className="detail-image">
+          <img src={record.imageUrl} alt={`${record.name} preview`} loading="lazy" />
+        </div>
+      ) : null}
+
       <div className="detail-stats">
         {Object.entries(record.stats).map(([key, value]) => (
           <div key={key}>
@@ -615,6 +621,8 @@ function mapSearchRecordToCargoShip(record: SearchRecord): CargoShipRecord | und
     role: readStat(record, "Role") ?? readStat(record, "Focus"),
     size: readStat(record, "Size"),
     cargoScu,
+    pledgeUrl: record.source.sourceUrl,
+    imageUrl: record.imageUrl,
     source: record.source
   };
 }
@@ -1083,6 +1091,21 @@ function PilotShipPanel({
       </div>
 
       <section className="ship-picker-shell" aria-label="Ship selection">
+        <label className="ship-select-control">
+          <span>Ship</span>
+          <select value={selectedShip?.id ?? ""} onChange={(event) => onShipChange(event.currentTarget.value)}>
+            {shipGroups.map((group) => (
+              <optgroup key={group.manufacturer} label={group.manufacturer}>
+                {group.ships.map((ship) => (
+                  <option key={ship.id} value={ship.id}>
+                    {ship.name} - {getShipCargoScu(ship)} SCU
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </label>
+
         <div className="selected-ship-hero">
           {selectedShip?.imageUrl ? (
             <img src={selectedShip.imageUrl} alt={`${selectedShip.name} ship render`} />
@@ -1105,7 +1128,7 @@ function PilotShipPanel({
             <small>{shipCatalogSource} - {shipOptions.length} cargo ships</small>
           </div>
           <button className="ship-picker-toggle" type="button" onClick={() => setShipPickerOpen((value) => !value)}>
-            {shipPickerOpen ? "收起列表" : "选择飞船"}
+            {shipPickerOpen ? "收起图册" : "展开图册"}
           </button>
         </div>
 
@@ -1734,9 +1757,20 @@ export function VerseIndexApp() {
 
                     return (
                       <article
-                        className={selectedRecord?.id === record.id ? "result-card active" : "result-card"}
+                        className={[
+                          "result-card",
+                          selectedRecord?.id === record.id ? "active" : "",
+                          record.imageUrl ? "with-thumb" : ""
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
                         key={record.id}
                       >
+                        {record.imageUrl ? (
+                          <div className="result-thumb">
+                            <img src={record.imageUrl} alt={`${record.name} preview`} loading="lazy" />
+                          </div>
+                        ) : null}
                         <div>
                           <div className="record-title">
                             <h2>{record.name}</h2>

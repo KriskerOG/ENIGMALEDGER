@@ -9,6 +9,62 @@ const WIKI_API_BASE_URL = "https://api.star-citizen.wiki";
 const UEX_API_BASE_URL = "https://api.uexcorp.uk/2.0";
 const CITIZENWIKI_SEARCH_URL = "https://citizenwiki.cn/index.php";
 const STAR_CITIZEN_TOOLS_SEARCH_URL = "https://starcitizen.tools/index.php";
+const KRAKEN_IMAGE_URL =
+  "https://robertsspaceindustries.com/i/246490295838c8d442391398f9bfa4069693509e/resize(2048,1024,cover,ADdPNihJzmPbNuTnFsH1DqUeqBRpXdSXVVtgJTyDDgscGKrzJuoFjResjqYHRGgyn5CBWsSTK3b9eZJ6fQD1C1ydp)/source.jpg";
+const KRAKEN_PRIVATEER_IMAGE_URL =
+  "https://robertsspaceindustries.com/i/9c5813524aed20500cd4407b65c19eab713303a9/resize(2048,1024,cover,ADdPNihJzmPbNuTnFsH1DqUeqBRpXdSXVVtgJTyDDgscGKrzJuoFjResjqYJiA954ovGyjrhJzKDcRSB3GeX5S1Wn)/source.jpg";
+const ALIAS_SHIP_PATCHES = {
+  "drake kraken": {
+    name: "Drake Kraken",
+    manufacturer: "Drake Interplanetary",
+    manufacturerCode: "DRAK",
+    role: "Light carrier",
+    size: "Capital",
+    cargoScu: 3792,
+    sourceUrl: "https://robertsspaceindustries.com/pledge/ships/drake-kraken/Kraken",
+    imageUrl: KRAKEN_IMAGE_URL,
+    summary:
+      "Drake's multi-role light carrier with exterior landing pads, hangars, and a dedicated cargo hold for ships, cargo, and supplies.",
+    tags: ["Drake", "Carrier", "Capital", "Cargo"],
+  },
+  kraken: {
+    name: "Drake Kraken",
+    manufacturer: "Drake Interplanetary",
+    manufacturerCode: "DRAK",
+    role: "Light carrier",
+    size: "Capital",
+    cargoScu: 3792,
+    sourceUrl: "https://robertsspaceindustries.com/pledge/ships/drake-kraken/Kraken",
+    imageUrl: KRAKEN_IMAGE_URL,
+    summary:
+      "Drake's multi-role light carrier with exterior landing pads, hangars, and a dedicated cargo hold for ships, cargo, and supplies.",
+    tags: ["Drake", "Carrier", "Capital", "Cargo"],
+  },
+  "drake kraken privateer": {
+    name: "Drake Kraken Privateer",
+    manufacturer: "Drake Interplanetary",
+    manufacturerCode: "DRAK",
+    role: "Mobile marketplace",
+    size: "Capital",
+    cargoScu: 768,
+    sourceUrl: "https://robertsspaceindustries.com/pledge/ships/drake-kraken/Kraken-Privateer",
+    imageUrl: KRAKEN_PRIVATEER_IMAGE_URL,
+    summary: "A Kraken variant configured as a private mobile marketplace and trading platform.",
+    tags: ["Drake", "Carrier", "Capital", "Trading"],
+  },
+  "kraken privateer": {
+    name: "Drake Kraken Privateer",
+    manufacturer: "Drake Interplanetary",
+    manufacturerCode: "DRAK",
+    role: "Mobile marketplace",
+    size: "Capital",
+    cargoScu: 768,
+    sourceUrl: "https://robertsspaceindustries.com/pledge/ships/drake-kraken/Kraken-Privateer",
+    imageUrl: KRAKEN_PRIVATEER_IMAGE_URL,
+    summary: "A Kraken variant configured as a private mobile marketplace and trading platform.",
+    tags: ["Drake", "Carrier", "Capital", "Trading"],
+  },
+};
 const RATE_LIMITS = new Map();
 const UEX_ROUTE_CACHE = new Map();
 const UEX_ROUTE_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -826,12 +882,16 @@ function mapWikiVehicleToRecord(vehicle, fetchedAt = new Date()) {
   const manufacturer = getManufacturerName(vehicle.manufacturer) ?? vehicle.manufacturer_name;
   const sourceRecordId = String(vehicle.uuid ?? vehicle.id ?? vehicle.slug ?? name);
   const vehicleType = pickWikiValue(vehicle.type, "en");
+  const image = Array.isArray(vehicle.images)
+    ? vehicle.images.find((candidate) => candidate.thumbnail_url || candidate.original_url)
+    : undefined;
 
   return {
     id: `wiki-vehicle-${sourceRecordId}`,
     type: vehicle.is_vehicle && !vehicle.is_spaceship ? "vehicle" : vehicleType?.toLowerCase().includes("vehicle") ? "vehicle" : "ship",
     slug: vehicle.slug ?? slugify(name),
     name,
+    imageUrl: image?.thumbnail_url ?? image?.original_url ?? undefined,
     manufacturer,
     summary: pickLocalized(vehicle.description, "en") ?? pickLocalized(vehicle.game_description, "en") ?? "",
     tags: [getVehicleRole(vehicle), pickWikiValue(vehicle.size, "en"), pickWikiValue(vehicle.production_status, "en")].filter(Boolean),
@@ -1089,7 +1149,49 @@ function findLocalizationAliases(query, limit = 10) {
     .map((item) => item.alias);
 }
 
+function getAliasShipPatch(alias) {
+  if (!String(alias.key ?? "").toLowerCase().startsWith("vehicle_name")) {
+    return undefined;
+  }
+
+  return ALIAS_SHIP_PATCHES[normalizeUexName(alias.en)];
+}
+
 function makeLocalizationAliasRecord(alias) {
+  const shipPatch = getAliasShipPatch(alias);
+
+  if (shipPatch) {
+    return {
+      id: `localization-ship-${alias.id}`,
+      type: "ship",
+      slug: buildSearchEntrySlug("ship", shipPatch.name),
+      name: shipPatch.name,
+      nameZh: alias.zh,
+      imageUrl: shipPatch.imageUrl,
+      manufacturer: shipPatch.manufacturer,
+      categoryLabel: "Ship / Localization Alias",
+      summary: shipPatch.summary,
+      tags: [...shipPatch.tags, alias.zh, alias.en, alias.key],
+      stats: {
+        Manufacturer: shipPatch.manufacturer,
+        Role: shipPatch.role,
+        Focus: shipPatch.role,
+        Size: shipPatch.size,
+        Cargo: `${shipPatch.cargoScu} SCU`,
+        "Chinese Alias": alias.zh,
+        "English Alias": alias.en,
+        "Localization Key": alias.key,
+        Package: alias.packageId,
+      },
+      source: {
+        sourceName: "RSI Official Store + SC Localization Alias",
+        sourceUrl: shipPatch.sourceUrl,
+        sourceRecordId: alias.id,
+        freshness: "recent",
+      },
+    };
+  }
+
   return {
     id: `localization-${alias.id}`,
     type: "reference",

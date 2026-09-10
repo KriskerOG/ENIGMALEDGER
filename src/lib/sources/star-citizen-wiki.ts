@@ -877,12 +877,14 @@ export function mapWikiVehicleToRecord(vehicle: WikiVehicle, fetchedAt = new Dat
   const manufacturer = getManufacturerName(vehicle.manufacturer) ?? vehicle.manufacturer_name;
   const sourceRecordId = String(vehicle.uuid ?? vehicle.id ?? vehicle.slug ?? name);
   const vehicleType = pickWikiValue(vehicle.type, "en");
+  const image = vehicle.images?.find((candidate) => candidate.thumbnail_url || candidate.original_url);
 
   return {
     id: `wiki-vehicle-${sourceRecordId}`,
     type: vehicle.is_vehicle && !vehicle.is_spaceship ? "vehicle" : vehicleType?.toLowerCase().includes("vehicle") ? "vehicle" : "ship",
     slug: vehicle.slug ?? slugify(name),
     name,
+    imageUrl: image?.thumbnail_url ?? image?.original_url ?? undefined,
     manufacturer,
     summary: pickLocalized(vehicle.description, "en") ?? pickLocalized(vehicle.game_description, "en") ?? "",
     tags: [

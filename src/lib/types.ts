@@ -41,6 +41,7 @@ export interface SearchRecord {
   slug: string;
   name: string;
   nameZh?: string;
+  imageUrl?: string;
   manufacturer?: string;
   categoryLabel?: string;
   summary: string;
