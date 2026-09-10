@@ -8,14 +8,22 @@ export type EntityType =
   | "commodity"
   | "location"
   | "shop"
-  | "manufacturer";
+  | "manufacturer"
+  | "reference";
 
 export type EntityTypeFilter = EntityType | "all";
 
 export type FreshnessStatus = "fresh" | "recent" | "stale" | "unknown";
 export type FreshnessFilter = FreshnessStatus | "all";
 
-export type SourceName = "Star Citizen Wiki API" | "UEX Corp API" | "SC Trade Tools API" | "ENIGMA";
+export type SourceName =
+  | "Star Citizen Wiki API"
+  | "StarCitizen.tools"
+  | "CitizenWiki CN"
+  | "SC Localization Alias"
+  | "UEX Corp API"
+  | "SC Trade Tools API"
+  | "ENIGMA";
 
 export interface SourceMetadata {
   sourceName: SourceName | string;

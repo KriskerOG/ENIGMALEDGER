@@ -24,6 +24,10 @@ interface SearchRow extends QueryResultRow {
 const MAX_LIMIT = 50;
 
 export async function searchRecordsFromDb(input: SearchInput): Promise<SearchRecord[] | null> {
+  if (input.type === "reference") {
+    return [];
+  }
+
   if (!getPool()) {
     return null;
   }

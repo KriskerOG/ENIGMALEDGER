@@ -677,6 +677,10 @@ button:focus-visible {
   text-decoration: none;
 }
 
+.result-footnote a {
+  display: none;
+}
+
 .result-footnote a:hover,
 .cn-wiki-link:hover {
   color: var(--gold);
@@ -747,6 +751,25 @@ button:focus-visible {
   min-width: 72px;
   justify-content: center;
   background: rgba(255, 255, 255, 0.04);
+}
+
+.result-actions > a:not(.source-button) {
+  display: none;
+}
+
+.result-actions .source-button {
+  min-width: 94px;
+  font-weight: 850;
+}
+
+.result-actions .cn-source {
+  border-color: rgba(60, 200, 180, 0.38);
+  color: var(--teal);
+}
+
+.result-actions .sc-source {
+  border-color: rgba(214, 168, 79, 0.38);
+  color: var(--gold);
 }
 
 .result-actions button:hover,

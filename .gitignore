@@ -4,6 +4,7 @@ node_modules/
 .pnpm-store/
 dist/
 coverage/
+data/localization-snapshots/
 *.log
 tsconfig.tsbuildinfo
 .env

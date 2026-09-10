@@ -16,6 +16,7 @@ import type {
 const DEFAULT_TRADE_ORIGIN = "Seraphim Station";
 const ROUTE_RESULT_LIMIT = 80;
 const CITIZENWIKI_SEARCH_URL = "https://citizenwiki.cn/index.php";
+const STAR_CITIZEN_TOOLS_SEARCH_URL = "https://starcitizen.tools/index.php";
 
 const typeOptions: Array<{ value: EntityTypeFilter; label: string }> = [
   { value: "all", label: "全部" },
@@ -27,7 +28,8 @@ const typeOptions: Array<{ value: EntityTypeFilter; label: string }> = [
   { value: "equipment", label: "装备" },
   { value: "commodity", label: "商品" },
   { value: "location", label: "地点" },
-  { value: "shop", label: "商店" }
+  { value: "shop", label: "商店" },
+  { value: "reference", label: "来源" }
 ];
 
 const freshnessOptions: Array<{ value: FreshnessFilter; label: string }> = [
@@ -99,7 +101,8 @@ const typeLabels: Record<string, string> = {
   commodity: "商品",
   location: "地点",
   shop: "商店",
-  manufacturer: "制造商"
+  manufacturer: "制造商",
+  reference: "来源"
 };
 
 interface SearchApiResponse {
@@ -182,6 +185,14 @@ function formatSearchSourceLabel(source: string): string {
         return "Star Citizen Wiki API";
       }
 
+      if (provider === "localization") {
+        return "SC localization aliases";
+      }
+
+      if (provider === "wiki-links") {
+        return "wiki search links";
+      }
+
       if (provider === "database") {
         return "database";
       }
@@ -201,6 +212,16 @@ function buildCitizenWikiSearchUrl(name: string | undefined): string | undefined
   return `${CITIZENWIKI_SEARCH_URL}?search=${encodeURIComponent(query)}`;
 }
 
+function buildScWikiSearchUrl(name: string | undefined): string | undefined {
+  const query = String(name ?? "").trim();
+
+  if (!query) {
+    return undefined;
+  }
+
+  return `${STAR_CITIZEN_TOOLS_SEARCH_URL}?search=${encodeURIComponent(query)}`;
+}
+
 function hasStarWikiSource(sourceName: string | undefined, sourceUrl?: string): boolean {
   const sourceText = `${sourceName ?? ""} ${sourceUrl ?? ""}`.toLowerCase();
 
@@ -209,6 +230,70 @@ function hasStarWikiSource(sourceName: string | undefined, sourceUrl?: string): 
     sourceText.includes("starcitizen.tools") ||
     sourceText.includes("star-citizen.wiki")
   );
+}
+
+function hasCitizenWikiSource(sourceName: string | undefined, sourceUrl?: string): boolean {
+  const sourceText = `${sourceName ?? ""} ${sourceUrl ?? ""}`.toLowerCase();
+
+  return sourceText.includes("citizenwiki") || sourceText.includes("citizenwiki.cn") || sourceText.includes("中文百科");
+}
+
+function hasCjkText(value: string | undefined): boolean {
+  return /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(String(value ?? ""));
+}
+
+function getRecordStatString(record: SearchRecord, key: string): string | undefined {
+  const value = record.stats?.[key];
+
+  return value === null || value === undefined ? undefined : String(value);
+}
+
+function getCitizenWikiSearchTerm(record: SearchRecord, currentQuery?: string): string {
+  const localizedAlias = getRecordStatString(record, "Chinese Alias") ?? (hasCjkText(record.nameZh) ? record.nameZh : undefined);
+
+  if (localizedAlias?.trim()) {
+    return localizedAlias.trim();
+  }
+
+  if (currentQuery?.trim() && hasCjkText(currentQuery)) {
+    return currentQuery.trim();
+  }
+
+  if (record.type === "reference" && currentQuery?.trim()) {
+    return currentQuery.trim();
+  }
+
+  return record.nameZh ?? record.name;
+}
+
+function getScWikiSearchTerm(record: SearchRecord, currentQuery?: string): string {
+  const englishAlias = getRecordStatString(record, "English Alias");
+
+  if (englishAlias?.trim()) {
+    return englishAlias.trim();
+  }
+
+  if (record.type === "reference" && currentQuery?.trim()) {
+    return currentQuery.trim();
+  }
+
+  return record.name;
+}
+
+function getCitizenWikiUrlForRecord(record: SearchRecord, currentQuery?: string): string | undefined {
+  if (hasCitizenWikiSource(record.source.sourceName, record.source.sourceUrl) && record.source.sourceUrl) {
+    return record.source.sourceUrl;
+  }
+
+  return buildCitizenWikiSearchUrl(getCitizenWikiSearchTerm(record, currentQuery));
+}
+
+function getScWikiUrlForRecord(record: SearchRecord, currentQuery?: string): string | undefined {
+  if (hasStarWikiSource(record.source.sourceName, record.source.sourceUrl) && record.source.sourceUrl) {
+    return record.source.sourceUrl;
+  }
+
+  return buildScWikiSearchUrl(getScWikiSearchTerm(record, currentQuery));
 }
 
 function buildSourceKey(record: SearchRecord): string {
@@ -1361,9 +1446,7 @@ export function VerseIndexApp() {
           key,
           sourceName: record.source.sourceName,
           sourceUrl: record.source.sourceUrl,
-          citizenWikiUrl: hasStarWikiSource(record.source.sourceName, record.source.sourceUrl)
-            ? buildCitizenWikiSearchUrl(record.name)
-            : undefined,
+          citizenWikiUrl: getCitizenWikiUrlForRecord(record, query),
           gameVersion: record.source.gameVersion,
           sourceUpdatedAt: record.source.sourceUpdatedAt,
           freshness: record.source.freshness
@@ -1378,7 +1461,7 @@ export function VerseIndexApp() {
       footnotes: Array.from(seen.values()),
       byRecordId
     };
-  }, [records]);
+  }, [query, records]);
 
   const freshCount = records.filter((record) => record.source.freshness === "fresh").length;
 
@@ -1508,11 +1591,9 @@ export function VerseIndexApp() {
               <div className="result-list">
                 {records.length ? (
                   records.map((record) => {
-                    const externalRecord = isExternalRecord(record);
                     const canSetShip = record.type === "ship";
-                    const citizenWikiUrl = hasStarWikiSource(record.source.sourceName, record.source.sourceUrl)
-                      ? buildCitizenWikiSearchUrl(record.name)
-                      : undefined;
+                    const citizenWikiUrl = getCitizenWikiUrlForRecord(record, query);
+                    const scWikiUrl = getScWikiUrlForRecord(record, query);
 
                     return (
                       <article
@@ -1542,12 +1623,12 @@ export function VerseIndexApp() {
                         </div>
                         <div className="result-actions">
                           <em>{getRecordCategoryLabel(record)}</em>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setSelectedId(record.id);
+                          {canSetShip ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedId(record.id);
 
-                              if (canSetShip) {
                                 const nextShip =
                                   shipOptions.find((ship) => normalizeCatalogKey(ship.name) === normalizeCatalogKey(record.name)) ??
                                   mapSearchRecordToCargoShip(record);
@@ -1556,18 +1637,21 @@ export function VerseIndexApp() {
                                   setSelectedShipId(nextShip.id);
                                   setCargoScu(getShipCargoScu(nextShip));
                                 }
-                              }
-                            }}
-                          >
-                            {canSetShip ? "设为飞船" : "选中"}
-                          </button>
-                          {externalRecord ? (
-                            <a href={record.source.sourceUrl} rel="noreferrer" target="_blank">
-                              来源
+                              }}
+                            >
+                              设为飞船
+                            </button>
+                          ) : null}
+                          {citizenWikiUrl ? (
+                            <a className="source-button cn-source" href={citizenWikiUrl} rel="noreferrer" target="_blank">
+                              中文 Wiki
                             </a>
-                          ) : (
-                            <a href={`/entity/${record.slug}`}>详情</a>
-                          )}
+                          ) : null}
+                          {scWikiUrl ? (
+                            <a className="source-button sc-source" href={scWikiUrl} rel="noreferrer" target="_blank">
+                              SC Wiki
+                            </a>
+                          ) : null}
                         </div>
                       </article>
                     );

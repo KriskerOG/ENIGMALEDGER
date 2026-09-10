@@ -9,7 +9,20 @@ export const runtime = "nodejs";
 const SearchQuerySchema = z.object({
   q: z.string().trim().max(80).optional().default(""),
   type: z
-    .enum(["all", "ship", "vehicle", "component", "weapon", "armor", "equipment", "commodity", "location", "shop", "manufacturer"])
+    .enum([
+      "all",
+      "ship",
+      "vehicle",
+      "component",
+      "weapon",
+      "armor",
+      "equipment",
+      "commodity",
+      "location",
+      "shop",
+      "manufacturer",
+      "reference"
+    ])
     .optional()
     .default("all"),
   freshness: z.enum(["all", "fresh", "recent", "stale", "unknown"]).optional().default("all"),

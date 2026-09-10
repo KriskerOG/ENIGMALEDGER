@@ -22,7 +22,8 @@ function loadTsExports(relativePath, exportNames) {
   `;
   const output = execFileSync(process.execPath, ["--import", "tsx/esm", "-e", script], {
     cwd: root,
-    encoding: "utf8"
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024
   });
 
   return JSON.parse(output);
@@ -64,10 +65,12 @@ for (const item of readdirSync(entityBuildDir, { withFileTypes: true })) {
 copyFileSync(path.join(root, "worker", "index.js"), path.join(server, "index.js"));
 const { mockRecords, mockTradeRoutes } = loadTsExports("src/lib/mock-data.ts", ["mockRecords", "mockTradeRoutes"]);
 const { dataSourceCatalog } = loadTsExports("src/lib/sources/catalog.ts", ["dataSourceCatalog"]);
+const { localizationAliases } = loadTsExports("src/lib/generated/localization-aliases.ts", ["localizationAliases"]);
 const workerData = {
   searchRecords: mockRecords,
   tradeRoutes: mockTradeRoutes,
-  sourceCatalog: dataSourceCatalog
+  sourceCatalog: dataSourceCatalog,
+  localizationAliases
 };
 const workerSource = readFileSync(path.join(root, "worker", "index.js"), "utf8");
 const workerDataPrefix = `globalThis.__ENIGMA_WORKER_DATA__ = ${JSON.stringify(workerData)};\n`;

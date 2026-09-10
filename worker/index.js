@@ -2,10 +2,13 @@ const ENIGMA_DATA = globalThis.__ENIGMA_WORKER_DATA__ ?? {
   searchRecords: [],
   tradeRoutes: [],
   sourceCatalog: [],
+  localizationAliases: [],
 };
 
 const WIKI_API_BASE_URL = "https://api.star-citizen.wiki";
 const UEX_API_BASE_URL = "https://api.uexcorp.uk/2.0";
+const CITIZENWIKI_SEARCH_URL = "https://citizenwiki.cn/index.php";
+const STAR_CITIZEN_TOOLS_SEARCH_URL = "https://starcitizen.tools/index.php";
 const RATE_LIMITS = new Map();
 const UEX_ROUTE_CACHE = new Map();
 const UEX_ROUTE_CACHE_TTL_MS = 15 * 60 * 1000;
@@ -24,6 +27,7 @@ const ENTITY_TYPES = new Set([
   "location",
   "shop",
   "manufacturer",
+  "reference",
 ]);
 const FRESHNESS_VALUES = new Set(["all", "fresh", "recent", "stale", "unknown"]);
 const SOURCE_VALUES = new Set(["all", "local", "wiki", "database"]);
@@ -979,6 +983,168 @@ function matchesFilters(record, input) {
   );
 }
 
+function buildWikiSearchUrl(baseUrl, query) {
+  const url = new URL(baseUrl);
+  url.searchParams.set("search", query);
+  return url.toString();
+}
+
+function hasCjkText(value) {
+  return /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af]/u.test(value);
+}
+
+function buildSearchEntrySlug(prefix, query) {
+  const asciiSlug = query
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return `${prefix}-${asciiSlug || encodeURIComponent(query).replace(/%/g, "").toLowerCase().slice(0, 48)}`;
+}
+
+function makeWikiSearchLinkRecords(query) {
+  return [
+    {
+      id: buildSearchEntrySlug("citizenwiki-search", query),
+      type: "reference",
+      slug: buildSearchEntrySlug("citizenwiki-search", query),
+      name: `CitizenWiki CN: ${query}`,
+      nameZh: `中文百科搜索：${query}`,
+      categoryLabel: "中文 Wiki",
+      summary: `在 CitizenWiki 中文百科中搜索“${query}”。`,
+      tags: ["CitizenWiki", "中文百科", "外部搜索"],
+      stats: {
+        Query: query,
+        Language: "zh-CN",
+        Source: "CitizenWiki CN",
+      },
+      source: {
+        sourceName: "CitizenWiki CN",
+        sourceUrl: buildWikiSearchUrl(CITIZENWIKI_SEARCH_URL, query),
+        freshness: "unknown",
+      },
+    },
+    {
+      id: buildSearchEntrySlug("scwiki-search", query),
+      type: "reference",
+      slug: buildSearchEntrySlug("scwiki-search", query),
+      name: `SC Wiki: ${query}`,
+      nameZh: `英文百科搜索：${query}`,
+      categoryLabel: "SC Wiki",
+      summary: `在 StarCitizen.tools / Star Citizen Wiki 中搜索“${query}”。`,
+      tags: ["StarCitizen.tools", "SC Wiki", "外部搜索"],
+      stats: {
+        Query: query,
+        Language: "en",
+        Source: "StarCitizen.tools",
+      },
+      source: {
+        sourceName: "StarCitizen.tools",
+        sourceUrl: buildWikiSearchUrl(STAR_CITIZEN_TOOLS_SEARCH_URL, query),
+        freshness: "unknown",
+      },
+    },
+  ];
+}
+
+function shouldAppendWikiSearchLinks(input, query, wikiRecordCount) {
+  const canShowReference = input.type === "all" || input.type === "reference";
+
+  return Boolean(query) && canShowReference && (hasCjkText(query) || wikiRecordCount === 0 || input.type === "reference");
+}
+
+function normalizeLocalizationAliasText(value) {
+  return String(value ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[\s_\-·・:：,，.。;；'\"()[\]（）]+/g, " ")
+    .trim();
+}
+
+function findLocalizationAliases(query, limit = 10) {
+  const normalizedQuery = normalizeLocalizationAliasText(query);
+
+  if (!normalizedQuery) {
+    return [];
+  }
+
+  const aliases = Array.isArray(ENIGMA_DATA.localizationAliases) ? ENIGMA_DATA.localizationAliases : [];
+
+  return aliases
+    .map((alias) => {
+      const zh = normalizeLocalizationAliasText(alias.zh);
+      const en = normalizeLocalizationAliasText(alias.en);
+      const key = normalizeLocalizationAliasText(alias.key);
+      const exact = zh === normalizedQuery || en === normalizedQuery ? 100 : 0;
+      const prefix = zh.startsWith(normalizedQuery) || en.startsWith(normalizedQuery) ? 70 : 0;
+      const contains = zh.includes(normalizedQuery) || en.includes(normalizedQuery) || key.includes(normalizedQuery) ? 35 : 0;
+      const reverseContains = normalizedQuery.includes(zh) || normalizedQuery.includes(en) ? 20 : 0;
+      const score = exact || prefix || contains || reverseContains;
+
+      return { alias, score };
+    })
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score || left.alias.zh.length - right.alias.zh.length)
+    .slice(0, limit)
+    .map((item) => item.alias);
+}
+
+function makeLocalizationAliasRecord(alias) {
+  return {
+    id: `localization-${alias.id}`,
+    type: "reference",
+    slug: `localization-${alias.id}`,
+    name: alias.en,
+    nameZh: alias.zh,
+    categoryLabel: "汉化别名",
+    summary: `来自 SC 汉化数据的中英别名：${alias.zh} -> ${alias.en}。`,
+    tags: ["SC 汉化盒子", "汉化索引", alias.zh, alias.en, alias.packageId, alias.key],
+    stats: {
+      "Chinese Alias": alias.zh,
+      "English Alias": alias.en,
+      "Localization Key": alias.key,
+      Package: alias.packageId,
+    },
+    source: {
+      sourceName: "SC Localization Alias",
+      sourceRecordId: alias.id,
+      freshness: "recent",
+    },
+  };
+}
+
+function dedupeLocalizationAliasesByEnglish(aliases) {
+  const seen = new Set();
+  const deduped = [];
+
+  for (const alias of aliases) {
+    const key = normalizeUexName(alias.en);
+
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    deduped.push(alias);
+  }
+
+  return deduped;
+}
+
+function makeLocalizationAliasRecords(aliases, input) {
+  return dedupeLocalizationAliasesByEnglish(aliases)
+    .map(makeLocalizationAliasRecord)
+    .filter((record) => matchesFilters(record, input));
+}
+
+function getWikiSearchQueries(query, aliases) {
+  const values = [query, ...aliases.map((alias) => alias.en)]
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => value.length >= 2);
+
+  return Array.from(new Set(values)).slice(0, 5);
+}
+
 function dedupeRecords(records) {
   const deduped = new Map();
 
@@ -1015,6 +1181,8 @@ function recordCompletenessScore(record) {
 async function aggregateSearch(input) {
   const providerResults = [];
   const query = input.query.trim();
+  const localizationAliases =
+    (input.source === "all" || input.source === "wiki") && query.length >= 2 ? findLocalizationAliases(query, 10) : [];
 
   if (input.source === "local") {
     providerResults.push({
@@ -1034,10 +1202,13 @@ async function aggregateSearch(input) {
   if ((input.source === "all" || input.source === "wiki") && query.length >= 2) {
     try {
       const shouldSearchVehicles = input.type === "all" || input.type === "ship" || input.type === "vehicle";
-      const wikiResults = await Promise.allSettled([
-        searchWikiRecords(query),
-        shouldSearchVehicles ? searchWikiVehicleRecords(query, input.limit) : Promise.resolve([]),
-      ]);
+      const wikiQueries = getWikiSearchQueries(query, localizationAliases);
+      const wikiResults = await Promise.allSettled(
+        wikiQueries.flatMap((wikiQuery) => [
+          searchWikiRecords(wikiQuery),
+          shouldSearchVehicles ? searchWikiVehicleRecords(wikiQuery, input.limit) : Promise.resolve([]),
+        ]),
+      );
       const records = dedupeRecords(wikiResults.flatMap((result) => (result.status === "fulfilled" ? result.value : [])))
         .filter((record) => matchesFilters(record, input))
         .slice(0, input.limit);
@@ -1050,13 +1221,46 @@ async function aggregateSearch(input) {
         provider: "wiki",
         records,
       });
+
+      if (localizationAliases.length) {
+        providerResults.push({
+          provider: "localization",
+          records: makeLocalizationAliasRecords(localizationAliases, input),
+        });
+      }
+
+      if (shouldAppendWikiSearchLinks(input, query, records.length)) {
+        providerResults.push({
+          provider: "wiki-links",
+          records: makeWikiSearchLinkRecords(query).filter((record) => matchesFilters(record, input)),
+        });
+      }
     } catch (error) {
       providerResults.push({
         provider: "wiki",
         records: [],
         error: error instanceof Error ? error.message : "Wiki search failed.",
       });
+
+      if (localizationAliases.length) {
+        providerResults.push({
+          provider: "localization",
+          records: makeLocalizationAliasRecords(localizationAliases, input),
+        });
+      }
+
+      if (shouldAppendWikiSearchLinks(input, query, 0)) {
+        providerResults.push({
+          provider: "wiki-links",
+          records: makeWikiSearchLinkRecords(query).filter((record) => matchesFilters(record, input)),
+        });
+      }
     }
+  } else if ((input.source === "all" || input.source === "wiki") && shouldAppendWikiSearchLinks(input, query, 0)) {
+    providerResults.push({
+      provider: "wiki-links",
+      records: makeWikiSearchLinkRecords(query).filter((record) => matchesFilters(record, input)),
+    });
   }
 
   return providerResults;
