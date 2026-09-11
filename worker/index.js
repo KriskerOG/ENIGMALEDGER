@@ -15,6 +15,8 @@ const STAR_CITIZEN_TOOLS_SEARCH_URL = "https://starcitizen.tools/index.php";
 const PARATRANZ_TERMS_API_URL = "https://paratranz.cn/api/projects/8340/terms";
 const PARATRANZ_TERMS_SOURCE_URL = "https://paratranz.cn/projects/8340/terms";
 const RSI_BASE_URL = "https://robertsspaceindustries.com";
+const CITIZENWIKI_NEWS_BASE_URL = "https://news.citizenwiki.cn";
+const CITIZENWIKI_NEWS_API_URL = `${CITIZENWIKI_NEWS_BASE_URL}/v2/api/news`;
 const NEWS_CACHE_URL = "https://enigmaledger.internal/api/news-cache";
 const NEWS_FEEDS = [
   {
@@ -3406,6 +3408,14 @@ function stripNewsTags(value) {
   return decodeNewsHtml(String(value ?? "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
 }
 
+function cleanCitizenWikiNewsText(value) {
+  return stripNewsArticleHtml(value)
+    .replace(/来自iPhone客户端/g, "")
+    .replace(/本楼含有高级字体/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function stripNewsArticleHtml(value) {
   return decodeNewsHtml(String(value ?? ""))
     .replace(/<br\s*\/?>/gi, "\n")
@@ -3589,6 +3599,69 @@ async function fetchNewsFeed(feed) {
   }
 
   return items;
+}
+
+function mapCitizenWikiCategory(item) {
+  const text = `${item?.title ?? ""} ${item?.tag ?? ""}`.toLowerCase();
+
+  if (text.includes("hotfix") || text.includes("热修")) return "hotfix";
+  if (text.includes("patch") || text.includes("ptu") || text.includes("alpha") || text.includes("版本")) return "patch";
+  if (text.includes("roadmap") || text.includes("路线图")) return "roadmap";
+  if (text.includes("this week") || text.includes("周报") || text.includes("本周")) return "weekly";
+  if (text.includes("monthly") || text.includes("月报")) return "report";
+  if (
+    text.includes("pirate") ||
+    text.includes("iae") ||
+    text.includes("luminalia") ||
+    text.includes("节") ||
+    text.includes("活动")
+  ) {
+    return "event";
+  }
+
+  return "official";
+}
+
+async function fetchCitizenWikiNews() {
+  const response = await fetch(CITIZENWIKI_NEWS_API_URL, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "user-agent": "ENIGMA Ledger news index/1.0",
+    },
+    body: JSON.stringify({ message_type: "新闻", page_number: 1, search_text: "" }),
+    cf: {
+      cacheTtl: 900,
+      cacheEverything: false,
+    },
+  });
+
+  if (!response.ok) throw new Error(`citizenwiki-news ${response.status}`);
+
+  const payload = await response.json();
+  const rows = Array.isArray(payload) ? payload : [];
+
+  return rows.slice(0, 18).map((item, index) => {
+    const category = mapCitizenWikiCategory(item);
+    const url = String(item?.link || CITIZENWIKI_NEWS_BASE_URL).replace(/\?.*$/, "");
+    const title = cleanCitizenWikiNewsText(item?.title || "CitizenWiki News");
+    const summary = cleanCitizenWikiNewsText(item?.description || "");
+
+    return {
+      id: `citizenwiki-news:${item?.postId || index}`,
+      title,
+      titleZh: title,
+      category,
+      categoryZh: getNewsCategoryZh(category),
+      sourceName: "CitizenWiki News",
+      sourceUrl: CITIZENWIKI_NEWS_BASE_URL,
+      url,
+      posted: item?.pubDate || "",
+      summary,
+      summaryZh: summary || "中文新闻索引，点击查看来源页面。",
+      officialUrl: category === "patch" ? `${RSI_BASE_URL}/en/patch-notes` : `${RSI_BASE_URL}/en/comm-link`,
+    };
+  });
 }
 
 async function fetchOfficialArticleBody(url) {
@@ -3812,23 +3885,52 @@ async function handleNewsApi(request, env, url) {
     return jsonResponse({ error: "Rate limit exceeded." }, { status: 429 });
   }
 
-  const results = await Promise.allSettled(NEWS_FEEDS.map(fetchNewsFeed));
-  const feedItems = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
-  const items = await hydrateLatestPatchArticle(feedItems);
-  const translated = await applyNewsTranslation(items, env, request, url);
+  const citizenWikiResult = await Promise.allSettled([fetchCitizenWikiNews()]);
+  const citizenWikiItems = citizenWikiResult[0].status === "fulfilled" ? citizenWikiResult[0].value : [];
+
+  let translated = {
+    items: citizenWikiItems,
+    meta: {
+      enabled: false,
+      provider: "citizenwiki",
+      requested: false,
+      authorized: false,
+      translatedItems: 0,
+      usedCharacters: 0,
+      maxArticlesPerRun: 0,
+      maxCharactersPerArticle: 0,
+      maxCharactersPerPatch: 0,
+      maxCharactersPerRun: 0,
+      message: "CitizenWiki Chinese index. Full text is linked, not copied.",
+    },
+  };
+
+  if (url.searchParams.get("translate") === "1") {
+    const results = await Promise.allSettled(NEWS_FEEDS.map(fetchNewsFeed));
+    const feedItems = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+    const items = await hydrateLatestPatchArticle(feedItems);
+    translated = await applyNewsTranslation(items, env, request, url);
+  }
 
   const response = jsonResponse({
     data: translated.items,
     meta: {
       count: translated.items.length,
-      source: "RSI official",
+      source: "CitizenWiki News + RSI official links",
       updatedAt: new Date().toISOString(),
       translation: translated.meta,
-      providers: results.map((result, index) => ({
-        id: NEWS_FEEDS[index].id,
-        status: result.status,
-        url: NEWS_FEEDS[index].url,
-      })),
+      providers: [
+        {
+          id: "citizenwiki-news",
+          status: citizenWikiResult[0].status,
+          url: CITIZENWIKI_NEWS_BASE_URL,
+        },
+        ...NEWS_FEEDS.map((feed) => ({
+          id: feed.id,
+          status: "linked",
+          url: feed.url,
+        })),
+      ],
     },
   });
 
@@ -4063,23 +4165,7 @@ async function handleApi(request, env, url) {
 export default {
   async scheduled(_event, env, ctx) {
     ctx.waitUntil(getRuntimeLocalizationAliases(true));
-
-    if (env.NEWS_SYNC_SECRET && env.NEWS_TRANSLATION_PROVIDER && env.NEWS_TRANSLATION_PROVIDER !== "none") {
-      const url = new URL("https://enigmaledger.internal/api/news");
-      url.searchParams.set("translate", "1");
-
-      ctx.waitUntil(
-        handleNewsApi(
-          new Request(url, {
-            headers: {
-              "x-enigma-sync-secret": env.NEWS_SYNC_SECRET,
-            },
-          }),
-          env,
-          url,
-        ),
-      );
-    }
+    ctx.waitUntil(handleNewsApi(new Request("https://enigmaledger.internal/api/news"), env, new URL("https://enigmaledger.internal/api/news")));
   },
 
   async fetch(request, env) {
