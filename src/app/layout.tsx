@@ -6,8 +6,11 @@ export const metadata: Metadata = {
   title: "ENIGMA Verse Index",
   description: "Unofficial Star Citizen lookup, trade, and logistics index for ENIGMA.",
   icons: {
-    icon: "/enigma-icon.png",
-    apple: "/enigma-icon.png"
+    icon: [
+      { url: "/favicon.png", type: "image/png", sizes: "32x32" },
+      { url: "/enigma-icon.png", type: "image/png" }
+    ],
+    apple: "/apple-touch-icon.png"
   }
 };
 
