@@ -16,6 +16,7 @@ const STAR_CITIZEN_TOOLS_SEARCH_URL = "https://starcitizen.tools/index.php";
 const PARATRANZ_TERMS_API_URL = "https://paratranz.cn/api/projects/8340/terms";
 const PARATRANZ_TERMS_SOURCE_URL = "https://paratranz.cn/projects/8340/terms";
 const RSI_BASE_URL = "https://robertsspaceindustries.com";
+const NEWS_CACHE_URL = "https://enigmaledger.internal/api/news-cache";
 const NEWS_FEEDS = [
   {
     id: "patch-notes",
@@ -3671,9 +3672,37 @@ async function applyNewsTranslation(items, env, request, url) {
   }
 }
 
+async function readCachedNewsResponse() {
+  if (typeof caches === "undefined") return null;
+
+  const cached = await caches.default.match(new Request(NEWS_CACHE_URL));
+  return cached ? withSecurityHeaders(cached) : null;
+}
+
+async function writeCachedNewsResponse(response) {
+  if (typeof caches === "undefined") return;
+
+  const headers = new Headers(response.headers);
+  headers.set("cache-control", "public, max-age=86400");
+
+  await caches.default.put(
+    new Request(NEWS_CACHE_URL),
+    new Response(response.clone().body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    }),
+  );
+}
+
 async function handleNewsApi(request, env, url) {
   if (request.method !== "GET") {
     return jsonResponse({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
+  }
+
+  if (url.searchParams.get("translate") !== "1") {
+    const cached = await readCachedNewsResponse();
+    if (cached) return cached;
   }
 
   const rateLimit = rateLimitRequest(request, "news", 60, 60);
@@ -3685,7 +3714,7 @@ async function handleNewsApi(request, env, url) {
   const items = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
   const translated = await applyNewsTranslation(items, env, request, url);
 
-  return jsonResponse({
+  const response = jsonResponse({
     data: translated.items,
     meta: {
       count: translated.items.length,
@@ -3699,6 +3728,12 @@ async function handleNewsApi(request, env, url) {
       })),
     },
   });
+
+  if (translated.meta.authorized && translated.meta.translatedItems > 0) {
+    await writeCachedNewsResponse(response);
+  }
+
+  return response;
 }
 
 function handleHealthApi(request) {
@@ -3923,8 +3958,25 @@ async function handleApi(request, env, url) {
 }
 
 export default {
-  async scheduled(_event, _env, ctx) {
+  async scheduled(_event, env, ctx) {
     ctx.waitUntil(getRuntimeLocalizationAliases(true));
+
+    if (env.NEWS_SYNC_SECRET && env.NEWS_TRANSLATION_PROVIDER && env.NEWS_TRANSLATION_PROVIDER !== "none") {
+      const url = new URL("https://enigmaledger.internal/api/news");
+      url.searchParams.set("translate", "1");
+
+      ctx.waitUntil(
+        handleNewsApi(
+          new Request(url, {
+            headers: {
+              "x-enigma-sync-secret": env.NEWS_SYNC_SECRET,
+            },
+          }),
+          env,
+          url,
+        ),
+      );
+    }
   },
 
   async fetch(request, env) {
