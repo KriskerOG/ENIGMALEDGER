@@ -3705,7 +3705,7 @@ async function handleNewsApi(request, env, url) {
   }
 
   const rateLimit = rateLimitRequest(request, "news", 60, 60);
-  if (!rateLimit.ok) {
+  if (!rateLimit.allowed) {
     return jsonResponse({ error: "Rate limit exceeded." }, { status: 429 });
   }
 
