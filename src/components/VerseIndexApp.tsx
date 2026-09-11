@@ -44,11 +44,11 @@ type ActivePanel = "index" | "trade" | "starmap" | "news" | "network";
 type RouteStopSetting = number | "auto";
 
 const navTabs: Array<{ value: ActivePanel; label: string }> = [
+  { value: "network", label: "ENIGMA商会" },
   { value: "index", label: "索引" },
   { value: "trade", label: "贸易" },
   { value: "starmap", label: "星图" },
-  { value: "news", label: "新闻" },
-  { value: "network", label: "网络" }
+  { value: "news", label: "新闻" }
 ];
 
 const routeModeOptions: Array<{ value: TradeRouteMode; label: string }> = [
@@ -94,6 +94,11 @@ const verseGuideMaps = [
 ] as const;
 
 const sourcePurposeLabels: Record<string, string> = {
+  official_site: "星际公民官网",
+  patch_notes: "补丁说明",
+  comm_link: "官方公告",
+  event_news: "活动新闻",
+  ship_showroom: "飞船展示",
   search_database: "搜索数据库",
   ship_cargo_stats: "飞船货仓数据",
   cargo_ship_catalog: "货运飞船目录",
@@ -122,6 +127,7 @@ const sourcePurposeLabels: Record<string, string> = {
 const sourceStatusLabels: Record<string, string> = {
   enabled: "已启用 / enabled",
   planned: "计划中 / planned",
+  adapter_ready: "适配器就绪 / adapter ready",
   disabled: "未启用 / disabled"
 };
 
@@ -130,8 +136,148 @@ const sourceCadenceLabels: Record<string, string> = {
   "15m-60m for trade data": "贸易数据 15-60 分钟 / 15m-60m for trade data",
   "daily or cross-check only": "每日或仅交叉校验 / daily or cross-check only",
   "embedded live page": "嵌入实时页面 / embedded live page",
-  "linked live page": "链接实时页面 / linked live page"
+  "linked live page": "链接实时页面 / linked live page",
+  "live official page": "官方实时页面 / live official page"
 };
+
+const enigmaCharterClauses = [
+  {
+    index: "I",
+    title: "ORGANIZATION / 组织性质",
+    paragraphs: [
+      "ENIGMA Organization 是一个独立、中立，以商业合作与成员自治为基础的星际组织。",
+      "主要活动：星际贸易、物流运输、工业与资源开发、商业信息交换、舰队协作、护航与安保、探索与远征。",
+      "ENIGMA 不以领土扩张、政治统治或强制成员服从作为目标。",
+      "We build networks, not empires. 我们建立网络，而非帝国。"
+    ]
+  },
+  {
+    index: "II",
+    title: "MEMBERSHIP / 成员自由",
+    paragraphs: [
+      "每一名成员保留自己的职业、舰船、资产与个人行动自由。",
+      "在不损害组织安全、不违反有效合同、不泄露受保护信息的情况下，组织原则上不干涉成员个人活动。",
+      "加入 ENIGMA 代表接受共同商业规则，而不是放弃个人身份。",
+      "组织提供网络，而不是枷锁。"
+    ]
+  },
+  {
+    index: "III",
+    title: "THE CONTRACT / 契约原则",
+    paragraphs: [
+      "成员主动接受的贸易、运输、采购、护航、雇佣或其他合同，应按照确认后的条件履行。",
+      "未经交易相关方同意，不得擅自改变价格、货物、收益分配或其他核心条件。",
+      "蓄意违约、诈骗或侵吞资产，将被视为对 ENIGMA 信用体系的直接破坏。",
+      "A Deal is a Deal. 契约大于一切。"
+    ]
+  },
+  {
+    index: "IV",
+    title: "NEUTRAL COMMERCE / 中立贸易",
+    paragraphs: [
+      "ENIGMA 原则上允许与不同组织、势力及独立玩家开展商业往来。",
+      "成员不得因私人恩怨、阵营冲突或个人立场，破坏已由 ENIGMA 接受或担保的交易。",
+      "一旦合同生效：Trade comes first. 契约大于一切。"
+    ]
+  },
+  {
+    index: "V",
+    title: "ESCROW / 交易担保",
+    paragraphs: [
+      "在双方自愿的情况下，ENIGMA 可以作为中立第三方参与交易。",
+      "服务包括：交易见证、资产或货物暂存、双方身份确认、线上交易监管、交易条件确认、争议记录与协调。",
+      "任何担保成员都不得擅自修改交易条件或挪用托管资产。",
+      "Neutrality requires trust. Trust requires accountability."
+    ]
+  },
+  {
+    index: "VI",
+    title: "THE LEDGER / 信用记录",
+    paragraphs: [
+      "ENIGMA 可以记录与组织活动有关的重要合同、合作记录、违约行为和商业信誉。",
+      "这些记录共同构成：THE LEDGER。",
+      "The Ledger 的目的不是控制成员，而是保护组织内部最重要的资产：信用。",
+      "严重诈骗、恶意违约、盗取资产或冒用 ENIGMA 名义欺诈者，可被列入组织信用黑名单。"
+    ]
+  },
+  {
+    index: "VII",
+    title: "SECURITY / 武力与安保",
+    paragraphs: [
+      "ENIGMA 不主动发动无明确目的的冲突，但所有成员拥有合理自卫权。",
+      "组织可以使用武力保护成员、舰船、货物、合同、舰队、组织设施，以及经批准的贸易与物流行动。",
+      "针对海盗、恶意袭击或直接威胁，组织可以进行护航、防御与反击。",
+      "Neutral does not mean defenseless. 没有枪不等同于有枪不用。"
+    ]
+  },
+  {
+    index: "VIII",
+    title: "FLEET OPERATIONS / 舰队行动",
+    paragraphs: [
+      "正式舰队行动应尽可能在出发前明确任务目标、指挥体系、集结地点、收益分配、风险范围与撤离条件。",
+      "舰队指挥应优先考虑任务完成、成员生存与资产安全。",
+      "无意义的损耗不应被视为勇气。"
+    ]
+  },
+  {
+    index: "IX",
+    title: "INFORMATION / 情报与隐私",
+    paragraphs: [
+      "未经授权，成员不得公开涉及组织核心利益的信息。",
+      "受保护信息包括：贸易路线、货物库存、大宗交易、客户信息、舰队部署、行动时间与内部商业记录。",
+      "信息本身就是一种资产。ENIGMA 尊重信息的价值。"
+    ]
+  },
+  {
+    index: "X",
+    title: "ARBITRATION / 争议仲裁",
+    paragraphs: [
+      "成员之间发生交易或合同争议时，应优先通过内部协调解决。",
+      "仲裁可参考合同内容、交易记录、通信记录、第三方见证，以及 The Ledger 中的历史信用。",
+      "核心问题不是谁拥有更高地位，而是谁履行了契约。"
+    ]
+  },
+  {
+    index: "XI",
+    title: "PROFIT / 收益原则",
+    paragraphs: [
+      "组织行动收益分配，应尽可能在任务开始前明确。",
+      "承担更多资产、风险、成本、组织工作或指挥责任者，可以获得相应收益。",
+      "成员劳动成果不得仅因组织等级而被无理由侵占。",
+      "Contribution creates value. Value deserves return. 贡献创造价值，价值回馈贡献。"
+    ]
+  },
+  {
+    index: "XII",
+    title: "BASEMENT",
+    paragraphs: [
+      "BASEMENT 是 ENIGMA 对主要地区性集结与贸易节点的传统称呼。",
+      "当前 Stanton 区域的主要活动节点位于：SERAPHIM STATION。",
+      "BASEMENT 主要承担：成员集结、贸易协调、后勤补给、舰队编组、合同发布、商业信息交换、新成员接待。"
+    ]
+  },
+  {
+    index: "XIII",
+    title: "THE NETWORK / 长期目标",
+    paragraphs: [
+      "ENIGMA 最终追求的，不是最大的舰队，也不是最多的成员。",
+      "我们希望建立能够跨越组织、职业和星系长期运行的商业网络。",
+      "让矿工找到运输者，运输者找到护航，商人找到买家，远征队找到补给。",
+      "让陌生船长因为 ENIGMA 的标志，而愿意相信一份合同。"
+    ]
+  },
+  {
+    index: "FINAL",
+    title: "FINAL CLAUSE / 最终条款",
+    paragraphs: [
+      "舰船、货物、UEC、企业、政府与帝国都不会永恒，但信用可以比它们存在得更久。",
+      "HONOR THE CONTRACT. 契约等价荣耀。",
+      "PROTECT THE NETWORK. 保护贸易网络。",
+      "NEVER BETRAY THE LEDGER. 永不背叛信誉。",
+      "ENIGMA ORGANIZATION · TRUST 信誉 · TRADE 贸易 · NEUTRALITY 中立 · FREEDOM 自由。"
+    ]
+  }
+];
 
 const starCitizenEvents = [
   {
@@ -2888,26 +3034,12 @@ export function VerseIndexApp() {
                 ENIGMA helps independent pilots, traders, miners, haulers, escorts, and explorers cooperate through
                 contracts, reputation, and neutral commerce.
               </p>
-            </div>
-
-            <div className="source-grid" aria-label="Data sources">
-              {sourceCatalog.map((source) => (
-                <article key={source.id}>
-                  <header>
-                    <h2>{source.name}</h2>
-                    <span>{sourceStatusLabels[source.status] ?? source.status}</span>
-                  </header>
-                  <div className="source-purpose-list">
-                    {source.purpose.map((purpose) => (
-                      <span key={purpose}>{sourcePurposeLabels[purpose] ? `${sourcePurposeLabels[purpose]} / ${purpose}` : purpose}</span>
-                    ))}
-                  </div>
-                  <footer>
-                    <span>{source.requiresToken ? "需要密钥 / Token required" : "无需密钥 / No token"}</span>
-                    <span>{sourceCadenceLabels[source.recommendedCadence] ?? source.recommendedCadence}</span>
-                  </footer>
-                </article>
-              ))}
+              <div className="kook-invite">
+                <span>欢迎开黑玩家和感兴趣的玩家加入 ENIGMA 商会的 KOOK 频道</span>
+                <a className="kook-link" href="https://kook.vip/HttxHA" rel="noreferrer" target="_blank">
+                  https://kook.vip/HttxHA
+                </a>
+              </div>
             </div>
 
             <div className="charter-grid">
@@ -2938,6 +3070,54 @@ export function VerseIndexApp() {
                 <p>信誉是组织的核心资产，必须比任何单次任务、飞船或余额更持久。</p>
                 <p>Reputation is the organization's core asset and must outlast any single job, ship, or balance.</p>
               </article>
+            </div>
+
+            <section className="charter-document" aria-label="ENIGMA Charter">
+              <span className="charter-corner top-left" />
+              <span className="charter-corner top-right" />
+              <span className="charter-corner bottom-left" />
+              <span className="charter-corner bottom-right" />
+              <span className="charter-side left" />
+              <span className="charter-side right" />
+              <div className="charter-document-head">
+                <div className="charter-crest" aria-hidden="true">
+                  <span />
+                </div>
+                <p className="eyebrow">ENIGMA CHARTER</p>
+                <h2>自由贸易与中立合作宪章</h2>
+                <span>Charter of Free Commerce and Neutral Cooperation</span>
+              </div>
+              <div className="charter-clause-grid">
+                {enigmaCharterClauses.map((clause) => (
+                  <article key={clause.index}>
+                    <span>{clause.index}</span>
+                    <h3>{clause.title}</h3>
+                    {clause.paragraphs.map((paragraph) => (
+                      <p key={paragraph}>{paragraph}</p>
+                    ))}
+                  </article>
+                ))}
+              </div>
+            </section>
+
+            <div className="source-grid" aria-label="Data sources">
+              {sourceCatalog.map((source) => (
+                <article key={source.id}>
+                  <header>
+                    <h2>{source.name}</h2>
+                    <span>{sourceStatusLabels[source.status] ?? source.status}</span>
+                  </header>
+                  <div className="source-purpose-list">
+                    {source.purpose.map((purpose) => (
+                      <span key={purpose}>{sourcePurposeLabels[purpose] ? `${sourcePurposeLabels[purpose]} / ${purpose}` : purpose}</span>
+                    ))}
+                  </div>
+                  <footer>
+                    <span>{source.requiresToken ? "需要密钥 / Token required" : "无需密钥 / No token"}</span>
+                    <span>{sourceCadenceLabels[source.recommendedCadence] ?? source.recommendedCadence}</span>
+                  </footer>
+                </article>
+              ))}
             </div>
           </section>
         ) : null}

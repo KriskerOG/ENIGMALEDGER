@@ -10,6 +10,15 @@ export interface DataSourceCatalogItem {
 
 export const dataSourceCatalog: DataSourceCatalogItem[] = [
   {
+    id: "rsi-official",
+    name: "Roberts Space Industries Official",
+    purpose: ["official_site", "patch_notes", "comm_link", "event_news", "ship_showroom"],
+    docsUrl: "https://robertsspaceindustries.com/",
+    requiresToken: false,
+    recommendedCadence: "live official page",
+    status: "enabled"
+  },
+  {
     id: "star-citizen-wiki",
     name: "Star Citizen Wiki API",
     purpose: ["search_database", "ship_cargo_stats", "cargo_ship_catalog", "ships", "vehicles", "components", "items", "locations", "manufacturers"],
