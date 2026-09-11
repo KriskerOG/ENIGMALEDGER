@@ -1615,6 +1615,7 @@ export function VerseIndexApp() {
   const [routes, setRoutes] = useState<CalculatedTradeRoute[]>(
     calculateTradeRoutes({ origin: DEFAULT_TRADE_ORIGIN, cargoScu: 696, budgetUec: 750000, limit: ROUTE_RESULT_LIMIT })
   );
+  const [recommendationRoutes, setRecommendationRoutes] = useState<CalculatedTradeRoute[]>(routes);
   const [routeSource, setRouteSource] = useState("mock");
   const [routesLoading, setRoutesLoading] = useState(false);
   const [routesError, setRoutesError] = useState<string>();
@@ -1778,6 +1779,7 @@ export function VerseIndexApp() {
         }
 
         setRoutes(payload.data);
+        setRecommendationRoutes(payload.data);
         setRouteSource(payload.meta.source);
         setRouteUpstreamCount(payload.meta.upstreamCount);
         setRoutePlanMode(payload.meta.planMode ?? "direct");
@@ -1785,6 +1787,34 @@ export function VerseIndexApp() {
           setRouteStopCount(clampRouteStopCount(payload.meta.stopCount));
         }
         setRoutesError(payload.meta.warning);
+
+        if ((payload.meta.planMode === "loop" || routeStopCount !== 1) && tradeOrigin.trim()) {
+          const recommendationParams = new URLSearchParams(params);
+          recommendationParams.set("stopCount", "1");
+          recommendationParams.delete("destination");
+          recommendationParams.delete("refresh");
+
+          fetch(`/api/trade/routes?${recommendationParams.toString()}`)
+            .then((response) => (response.ok ? response.json() as Promise<TradeApiResponse> : undefined))
+            .then((recommendationPayload) => {
+              if (!active || !recommendationPayload) {
+                return;
+              }
+
+              const seen = new Set<string>();
+              const merged = [...payload.data, ...recommendationPayload.data].filter((route) => {
+                if (seen.has(route.id)) {
+                  return false;
+                }
+
+                seen.add(route.id);
+                return true;
+              });
+
+              setRecommendationRoutes(merged);
+            })
+            .catch(() => undefined);
+        }
       })
       .catch(() => {
         if (!active) {
@@ -1792,6 +1822,7 @@ export function VerseIndexApp() {
         }
 
         setRoutes([]);
+        setRecommendationRoutes([]);
         setRouteSource("local fallback");
         setRouteUpstreamCount(undefined);
         setRoutePlanMode("direct");
@@ -2301,7 +2332,7 @@ export function VerseIndexApp() {
                 routeMode={routeMode}
                 routePlanMode={routePlanMode}
                 routeSource={routeSource}
-                routes={routes}
+                routes={recommendationRoutes}
                 stopCount={routeStopCount}
                 selectedShip={selectedShip}
               />

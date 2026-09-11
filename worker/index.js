@@ -3104,23 +3104,22 @@ async function resolveUexDirectRoutes(env, input) {
 
 async function resolveUexAutoRoutes(env, input) {
   const sameEndpoint = isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
-  const attempts = [];
-  const loopCandidates = sameEndpoint ? [3, 2, 4] : [2, 3, 4];
+  const loopCandidates = sameEndpoint ? [3, 4, 5, 6, 2] : [2, 3, 4, 5, 6];
 
   if (!sameEndpoint) {
-    attempts.push(await resolveUexDirectRoutes(env, { ...input, stopCount: 1 }));
+    const direct = await resolveUexDirectRoutes(env, { ...input, stopCount: 1 });
+
+    if (direct.routes.length) {
+      return direct;
+    }
   }
 
   for (const stopCount of loopCandidates) {
     const result = await resolveUexLoopRoutes(env, { ...input, stopCount });
 
     if (result.routes.length) {
-      attempts.push(result);
+      return result;
     }
-  }
-
-  if (attempts.length) {
-    return attempts.sort((left, right) => bestRouteScore(right) - bestRouteScore(left))[0];
   }
 
   return sameEndpoint
