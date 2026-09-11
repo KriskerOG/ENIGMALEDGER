@@ -10,6 +10,7 @@ const client = path.join(dist, "client");
 const server = path.join(dist, "server");
 const hostingDir = path.join(dist, ".openai");
 const appBuild = path.join(root, ".next", "server", "app");
+const publicDir = path.join(root, "public");
 
 function loadTsExports(relativePath, exportNames) {
   const filename = path.join(root, relativePath);
@@ -42,6 +43,10 @@ rmSync(dist, { recursive: true, force: true });
 mkdirSync(client, { recursive: true });
 mkdirSync(server, { recursive: true });
 mkdirSync(hostingDir, { recursive: true });
+
+if (existsSync(publicDir)) {
+  cpSync(publicDir, client, { recursive: true });
+}
 
 cpSync(path.join(root, ".next", "static"), path.join(client, "_next", "static"), { recursive: true });
 copyFileSync(path.join(appBuild, "index.html"), path.join(client, "index.html"));

@@ -142,6 +142,7 @@ const starCitizenEvents = [
     day: 9,
     durationDays: 8,
     mark: "PW",
+    icon: "/event-icons/pirate-week.svg",
     tone: "red"
   },
   {
@@ -152,6 +153,7 @@ const starCitizenEvents = [
     day: 21,
     durationDays: 14,
     mark: "IAE",
+    icon: "/event-icons/iae.svg",
     tone: "violet"
   },
   {
@@ -162,6 +164,7 @@ const starCitizenEvents = [
     day: 12,
     durationDays: 21,
     mark: "LM",
+    icon: "/event-icons/luminalia.svg",
     tone: "white"
   },
   {
@@ -172,6 +175,7 @@ const starCitizenEvents = [
     day: 11,
     durationDays: 7,
     mark: "CO",
+    icon: "/event-icons/coramor.svg",
     tone: "purple"
   },
   {
@@ -182,6 +186,7 @@ const starCitizenEvents = [
     day: 17,
     durationDays: 14,
     mark: "RF",
+    icon: "/event-icons/red-festival.svg",
     tone: "orange"
   },
   {
@@ -192,6 +197,7 @@ const starCitizenEvents = [
     day: 18,
     durationDays: 7,
     mark: "SF",
+    icon: "/event-icons/stella-fortuna.svg",
     tone: "green"
   },
   {
@@ -202,6 +208,7 @@ const starCitizenEvents = [
     day: 15,
     durationDays: 14,
     mark: "ILW",
+    icon: "/event-icons/ilw.svg",
     tone: "blue"
   },
   {
@@ -212,6 +219,7 @@ const starCitizenEvents = [
     day: 17,
     durationDays: 7,
     mark: "AW",
+    icon: "/event-icons/alien-week.svg",
     tone: "cyan"
   },
   {
@@ -222,6 +230,7 @@ const starCitizenEvents = [
     day: 29,
     durationDays: 14,
     mark: "FF",
+    icon: "/event-icons/foundation.svg",
     tone: "teal"
   }
 ] as const;
@@ -2790,7 +2799,9 @@ export function VerseIndexApp() {
               <div className="event-countdown-grid">
                 {eventCountdowns.map((event) => (
                   <article className={`event-card ${event.tone}`} key={event.id}>
-                    <span className="event-mark">{event.mark}</span>
+                    <span className="event-mark">
+                      <img alt="" src={event.icon} />
+                    </span>
                     <div>
                       <h3>
                         {event.nameZh} <small>{event.nameEn}</small>
