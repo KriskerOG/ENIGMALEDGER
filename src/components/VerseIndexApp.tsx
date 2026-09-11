@@ -779,6 +779,14 @@ function groupShipsByManufacturer(ships: CargoShipRecord[]): Array<{ manufacture
     .sort((left, right) => left.manufacturer.localeCompare(right.manufacturer));
 }
 
+function formatShipName(ship: CargoShipRecord | undefined): string {
+  if (!ship) {
+    return "No ship";
+  }
+
+  return `${ship.name}${ship.nameZh ? ` ${ship.nameZh}` : ""}`;
+}
+
 function getShipCargoScu(ship: CargoShipRecord | undefined): number {
   return Math.max(0, Math.floor(Number(ship?.cargoScu ?? 0)));
 }
@@ -820,6 +828,105 @@ function buildShipTasks(ship: CargoShipRecord | undefined, cargoScu: number): st
   }
 
   return ["轻量快递", "样品运输", "侦察补给"];
+}
+
+function ShipCascadePicker({
+  className,
+  label = "Ship",
+  onShipChange,
+  selectedShip,
+  shipOptions
+}: {
+  className?: string;
+  label?: string;
+  onShipChange: (shipId: string) => void;
+  selectedShip: CargoShipRecord | undefined;
+  shipOptions: CargoShipRecord[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const shipGroups = useMemo(() => groupShipsByManufacturer(shipOptions), [shipOptions]);
+  const selectedManufacturer = selectedShip?.manufacturer ?? shipGroups[0]?.manufacturer ?? "Unknown";
+  const [activeManufacturer, setActiveManufacturer] = useState(selectedManufacturer);
+
+  useEffect(() => {
+    setActiveManufacturer(selectedManufacturer);
+  }, [selectedManufacturer]);
+
+  const normalizedSearch = normalizeCatalogKey(search);
+  const manufacturerShips =
+    shipGroups.find((group) => group.manufacturer === activeManufacturer)?.ships ?? shipGroups[0]?.ships ?? [];
+  const visibleShips = manufacturerShips
+    .filter((ship) => {
+      if (!normalizedSearch) {
+        return true;
+      }
+
+      return [ship.name, ship.nameZh, ship.manufacturer, ship.role, String(ship.cargoScu)]
+        .map((value) => normalizeCatalogKey(value))
+        .some((value) => value.includes(normalizedSearch));
+    })
+    .slice(0, 80);
+
+  function selectShip(ship: CargoShipRecord) {
+    onShipChange(ship.id);
+    setOpen(false);
+  }
+
+  return (
+    <div className={`ship-cascade-picker ${className ?? ""}`}>
+      <span className="control-label">{label}</span>
+      <button className="ship-cascade-trigger" type="button" onClick={() => setOpen((value) => !value)}>
+        <span>{formatShipName(selectedShip)}</span>
+        <small>{selectedShip ? `${getShipCargoScu(selectedShip)} SCU` : "N/A"}</small>
+      </button>
+      {open ? (
+        <div className="ship-cascade-menu">
+          <div className="ship-cascade-search">
+            <span>{selectedShip?.manufacturerCode ?? manufacturerCodeFromName(selectedShip?.manufacturer)}</span>
+            <input
+              autoComplete="off"
+              placeholder="C2, Hull, Kraken..."
+              value={search}
+              onChange={(event) => setSearch(event.currentTarget.value)}
+            />
+          </div>
+          <div className="ship-cascade-body">
+            <div className="ship-cascade-manufacturers">
+              {shipGroups.map((group) => (
+                <button
+                  className={activeManufacturer === group.manufacturer ? "active" : ""}
+                  key={group.manufacturer}
+                  type="button"
+                  onClick={() => setActiveManufacturer(group.manufacturer)}
+                >
+                  <strong>{group.manufacturer}</strong>
+                  <span>{group.ships.length}</span>
+                </button>
+              ))}
+            </div>
+            <div className="ship-cascade-ships">
+              {visibleShips.length ? (
+                visibleShips.map((ship) => (
+                  <button
+                    className={selectedShip?.id === ship.id ? "active" : ""}
+                    key={ship.id}
+                    type="button"
+                    onClick={() => selectShip(ship)}
+                  >
+                    <span>{formatShipName(ship)}</span>
+                    <small>{getShipCargoScu(ship)} SCU</small>
+                  </button>
+                ))
+              ) : (
+                <div className="ship-picker-empty">No ship</div>
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 
 function getRouteModeLabel(routeMode: TradeRouteMode): string {
@@ -1278,9 +1385,6 @@ function PilotShipPanel({
   shipOptions: CargoShipRecord[];
   stopCount: RouteStopSetting;
 }) {
-  const [shipPickerOpen, setShipPickerOpen] = useState(false);
-  const [shipSearch, setShipSearch] = useState("");
-  const [activeManufacturer, setActiveManufacturer] = useState("all");
   const shipCargoScu = getShipCargoScu(selectedShip);
   const role = getShipRole(selectedShip);
   const tasks = buildShipTasks(selectedShip, cargoScu);
@@ -1288,40 +1392,6 @@ function PilotShipPanel({
     .map((recommendation) => recommendation.route)
     .filter((route): route is CalculatedTradeRoute => Boolean(route))
     .slice(0, 3);
-  const shipGroups = groupShipsByManufacturer(shipOptions);
-  const manufacturerFilters = [
-    {
-      key: "all",
-      label: "All Manufacturers",
-      code: "ALL",
-      count: shipOptions.length
-    },
-    ...shipGroups.map((group) => ({
-      key: group.manufacturer,
-      label: group.manufacturer,
-      code: manufacturerCodeFromName(group.manufacturer),
-      count: group.ships.length
-    }))
-  ];
-  const normalizedShipSearch = normalizeCatalogKey(shipSearch);
-  const visibleShips = shipOptions
-    .filter((ship) => activeManufacturer === "all" || ship.manufacturer === activeManufacturer)
-    .filter((ship) => {
-      if (!normalizedShipSearch) {
-        return true;
-      }
-
-      return [ship.name, ship.manufacturer, ship.role, ship.size]
-        .map((value) => normalizeCatalogKey(value))
-        .some((value) => value.includes(normalizedShipSearch));
-    })
-    .slice(0, 48);
-
-  function selectShip(shipId: string) {
-    onShipChange(shipId);
-    setShipPickerOpen(false);
-  }
-
   return (
     <aside className="pilot-panel">
       <div className="heading-row pilot-heading">
@@ -1335,20 +1405,7 @@ function PilotShipPanel({
       </div>
 
       <section className="ship-picker-shell" aria-label="Ship selection">
-        <label className="ship-select-control">
-          <span>Ship</span>
-          <select value={selectedShip?.id ?? ""} onChange={(event) => onShipChange(event.currentTarget.value)}>
-            {shipGroups.map((group) => (
-              <optgroup key={group.manufacturer} label={group.manufacturer}>
-                {group.ships.map((ship) => (
-                  <option key={ship.id} value={ship.id}>
-                    {ship.name}{ship.nameZh ? ` / ${ship.nameZh}` : ""} - {getShipCargoScu(ship)} SCU
-                  </option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </label>
+        <ShipCascadePicker onShipChange={onShipChange} selectedShip={selectedShip} shipOptions={shipOptions} />
 
         <div className="selected-ship-hero">
           {selectedShip?.imageUrl ? (
@@ -1371,78 +1428,7 @@ function PilotShipPanel({
             <strong>{selectedShip?.manufacturer ?? "Unknown manufacturer"}</strong>
             <small>{shipCatalogSource} - {shipOptions.length} cargo ships</small>
           </div>
-          <button className="ship-picker-toggle" type="button" onClick={() => setShipPickerOpen((value) => !value)}>
-            {shipPickerOpen ? "收起图册" : "展开图册"}
-          </button>
         </div>
-
-        {shipPickerOpen ? (
-          <div className="ship-picker-drawer">
-            <div className="manufacturer-rail" aria-label="Manufacturer filters">
-              {manufacturerFilters.map((manufacturer) => (
-                <button
-                  className={activeManufacturer === manufacturer.key ? "manufacturer-filter active" : "manufacturer-filter"}
-                  key={manufacturer.key}
-                  type="button"
-                  onClick={() => setActiveManufacturer(manufacturer.key)}
-                >
-                  <span>{manufacturer.code}</span>
-                  <strong>{manufacturer.label}</strong>
-                  <small>{manufacturer.count}</small>
-                </button>
-              ))}
-            </div>
-
-            <div className="ship-picker-tools">
-              <label>
-                <span>Search ship / vehicle</span>
-                <input
-                  autoComplete="off"
-                  placeholder="C2, Hull, Caterpillar..."
-                  value={shipSearch}
-                  onChange={(event) => setShipSearch(event.currentTarget.value)}
-                />
-              </label>
-            </div>
-
-            <div className="ship-card-grid">
-              {visibleShips.length ? (
-                visibleShips.map((ship) => {
-                  const isActive = selectedShip ? isSimilarShipName(selectedShip.name, ship.name) : false;
-                  const shipCode = ship.manufacturerCode ?? manufacturerCodeFromName(ship.manufacturer);
-
-                  return (
-                    <button
-                      className={isActive ? "ship-choice-card active" : "ship-choice-card"}
-                      key={ship.id}
-                      type="button"
-                      onClick={() => selectShip(ship.id)}
-                    >
-                      <div className="ship-choice-image">
-                        {ship.imageUrl ? (
-                          <img src={ship.imageUrl} alt={`${ship.name} ship render`} loading="lazy" />
-                        ) : (
-                          <span>{shipCode}</span>
-                        )}
-                      </div>
-                      <div className="ship-choice-meta">
-                        <span>{ship.manufacturer}</span>
-                        <strong>{ship.name}</strong>
-                        <small>{ship.nameZh ? `${ship.nameZh} / ` : ""}{getShipRole(ship)}</small>
-                      </div>
-                      <div className="ship-choice-stats">
-                        <span>{getShipCargoScu(ship)} SCU</span>
-                        <span>{ship.maxContainerSize ? `${ship.maxContainerSize} SCU box` : ship.size ?? "cargo"}</span>
-                      </div>
-                    </button>
-                  );
-                })
-              ) : (
-                <div className="ship-picker-empty">No matching cargo-capable ship in the current catalog.</div>
-              )}
-            </div>
-          </div>
-        ) : null}
       </section>
 
       <div className="pilot-metrics">
@@ -1866,8 +1852,6 @@ export function VerseIndexApp() {
   const shipOptions = useMemo(() => {
     return mergeCargoShipOptions(shipCatalog, indexedShipOptions, fallbackShipOptions);
   }, [fallbackShipOptions, indexedShipOptions, shipCatalog]);
-  const shipGroups = useMemo(() => groupShipsByManufacturer(shipOptions), [shipOptions]);
-
   const selectedShip = useMemo(
     () =>
       findBestCargoShipMatch(shipOptions, selectedShipId) ??
@@ -2192,20 +2176,12 @@ export function VerseIndexApp() {
               </div>
 
               <div className="control-grid trade-controls planner-grid">
-                <label className="wide-control">
-                  <span>Ship</span>
-                  <select value={selectedShip?.id ?? ""} onChange={(event) => handleShipChange(event.currentTarget.value)}>
-                    {shipGroups.map((group) => (
-                      <optgroup key={group.manufacturer} label={group.manufacturer}>
-                        {group.ships.map((ship) => (
-                          <option key={ship.id} value={ship.id}>
-                            {ship.name} - {ship.cargoScu} SCU
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
-                </label>
+                <ShipCascadePicker
+                  className="wide-control"
+                  onShipChange={handleShipChange}
+                  selectedShip={selectedShip}
+                  shipOptions={shipOptions}
+                />
                 <label>
                   <span>Auto Cargo</span>
                   <input readOnly type="text" value={selectedShip ? `${selectedShip.cargoScu} SCU` : "Unknown"} />
