@@ -1179,12 +1179,13 @@ button:focus-visible {
 }
 
 .ship-cascade-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
+  position: fixed;
+  top: 82px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 20;
-  width: min(88vw, 820px);
-  height: min(80vh, 820px);
+  width: min(92vw, 1120px);
+  height: calc(100vh - 112px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(16, 18, 22, 0.98);
@@ -1216,8 +1217,7 @@ button:focus-visible {
 .ship-cascade-body {
   display: grid;
   grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
-  min-height: 280px;
-  height: calc(min(80vh, 820px) - 55px);
+  height: calc(100vh - 167px);
   min-height: 0;
 }
 
@@ -1263,14 +1263,31 @@ button:focus-visible {
 }
 
 .ship-cascade-ships {
+  height: 100%;
   min-height: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   align-content: start;
   gap: 10px;
-  overflow-y: auto;
+  overflow-y: scroll;
   overscroll-behavior: contain;
   padding: 10px;
+  scrollbar-gutter: stable;
+}
+
+.ship-cascade-ships::-webkit-scrollbar,
+.ship-cascade-manufacturers::-webkit-scrollbar {
+  width: 10px;
+}
+
+.ship-cascade-ships::-webkit-scrollbar-track,
+.ship-cascade-manufacturers::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.ship-cascade-ships::-webkit-scrollbar-thumb,
+.ship-cascade-manufacturers::-webkit-scrollbar-thumb {
+  background: rgba(214, 168, 79, 0.42);
 }
 
 .ship-cascade-ships button {
@@ -2153,12 +2170,13 @@ button:focus-visible {
 
   .ship-cascade-menu {
     width: min(92vw, 520px);
-    height: min(80vh, 640px);
+    height: calc(100vh - 96px);
+    top: 72px;
   }
 
   .ship-cascade-body {
     grid-template-columns: 1fr;
-    height: calc(min(80vh, 640px) - 55px);
+    height: calc(100vh - 151px);
   }
 
   .ship-cascade-manufacturers {
