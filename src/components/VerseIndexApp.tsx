@@ -3055,6 +3055,17 @@ export function VerseIndexApp() {
                   https://kook.vip/HttxHA
                 </a>
               </div>
+              <div className="kook-invite">
+                <span>ENIGMA商会申请链接，不要求设置主组织，我们是商会而非舰队</span>
+                <a
+                  className="kook-link"
+                  href="https://robertsspaceindustries.com/en/orgs/ENIGMAORG"
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  https://robertsspaceindustries.com/en/orgs/ENIGMAORG
+                </a>
+              </div>
             </div>
 
             <div className="charter-grid">
