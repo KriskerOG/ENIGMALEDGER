@@ -3389,6 +3389,8 @@ function handleSourcesApi(request) {
 function decodeNewsHtml(value) {
   return String(value ?? "")
     .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#039;/g, "'")
     .replace(/&#39;/g, "'")
@@ -3403,6 +3405,30 @@ function decodeNewsHtml(value) {
 
 function stripNewsTags(value) {
   return decodeNewsHtml(String(value ?? "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+function stripNewsArticleHtml(value) {
+  return decodeNewsHtml(String(value ?? ""))
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|ul|ol)>/gi, "\n")
+    .replace(/<li[^>]*>/gi, "- ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n[ \t]+/g, "\n")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+function chunkNewsText(value, chunkSize = 4800) {
+  const text = String(value ?? "").trim();
+  const chunks = [];
+
+  for (let start = 0; start < text.length; start += chunkSize) {
+    chunks.push(text.slice(start, start + chunkSize));
+  }
+
+  return chunks;
 }
 
 function getNewsCategory(title, fallback) {
@@ -3566,6 +3592,57 @@ async function fetchNewsFeed(feed) {
   return items;
 }
 
+async function fetchOfficialArticleBody(url) {
+  const pageResponse = await fetch(url, {
+    headers: { "user-agent": "ENIGMA Ledger news index/1.0" },
+    cf: { cacheTtl: 3600, cacheEverything: false },
+  });
+
+  if (!pageResponse.ok) return "";
+
+  const pageHtml = await pageResponse.text();
+  const bodyUrlMatch = pageHtml.match(/const\s+s3Url\s*=\s*'([^']+)'/);
+
+  if (!bodyUrlMatch?.[1]) return "";
+
+  const bodyUrl = bodyUrlMatch[1].startsWith("http") ? bodyUrlMatch[1] : `${RSI_BASE_URL}${bodyUrlMatch[1]}`;
+  const bodyResponse = await fetch(bodyUrl, {
+    headers: { "user-agent": "ENIGMA Ledger news index/1.0" },
+    cf: { cacheTtl: 3600, cacheEverything: false },
+  });
+
+  if (!bodyResponse.ok) return "";
+
+  const bodyHtml = await bodyResponse.text();
+  const articleBodies = Array.from(bodyHtml.matchAll(/<g-article\b[^>]*\sbody="([\s\S]*?)"/g))
+    .map((match) => stripNewsArticleHtml(match[1]))
+    .filter(Boolean)
+    .sort((left, right) => right.length - left.length);
+
+  return articleBodies[0] ?? "";
+}
+
+async function hydrateLatestPatchArticle(items) {
+  const hydrated = items.map((item) => ({ ...item }));
+  const patchIndex = hydrated.findIndex((item) => item.category === "patch");
+
+  if (patchIndex < 0) return hydrated;
+
+  try {
+    const content = await fetchOfficialArticleBody(hydrated[patchIndex].url);
+
+    if (content) {
+      hydrated[patchIndex].content = content;
+      hydrated[patchIndex].contentZh = "";
+      hydrated[patchIndex].contentMode = "full_patch";
+    }
+  } catch {
+    // Keep the feed usable when RSI's article body endpoint changes.
+  }
+
+  return hydrated;
+}
+
 function getNewsTranslationConfig(env, request, url) {
   const provider = env.NEWS_TRANSLATION_PROVIDER || "none";
   const requested = url.searchParams.get("translate") === "1";
@@ -3587,7 +3664,8 @@ function getNewsTranslationConfig(env, request, url) {
     usedCharacters: 0,
     maxArticlesPerRun: Math.min(20, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_ARTICLES_PER_RUN || 3))),
     maxCharactersPerArticle: Math.min(12000, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_CHARS_PER_ARTICLE || 3000))),
-    maxCharactersPerRun: Math.min(50000, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_CHARS_PER_RUN || 9000))),
+    maxCharactersPerPatch: Math.min(80000, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_PATCH_CHARS || 50000))),
+    maxCharactersPerRun: Math.min(100000, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_CHARS_PER_RUN || 9000))),
     message: "Public read only. Translation not requested.",
   };
 }
@@ -3634,16 +3712,35 @@ async function applyNewsTranslation(items, env, request, url) {
 
   const textPairs = [];
   let usedCharacters = 0;
+  const runLimit = Math.max(meta.maxCharactersPerRun, meta.maxCharactersPerPatch);
+
+  const addTextPair = (itemIndex, field, value, append = false, limit = meta.maxCharactersPerArticle) => {
+    const text = String(value || "").slice(0, limit).trim();
+    if (!text || usedCharacters + text.length > runLimit) return false;
+    usedCharacters += text.length;
+    textPairs.push({ itemIndex, field, text, append });
+    return true;
+  };
+
+  const latestPatchIndex = items.findIndex((item) => item.category === "patch" && item.content);
+  const latestPatch = latestPatchIndex >= 0 ? items[latestPatchIndex] : null;
+
+  if (latestPatch) {
+    addTextPair(latestPatchIndex, "titleZh", latestPatch.title);
+
+    for (const chunk of chunkNewsText(String(latestPatch.content).slice(0, meta.maxCharactersPerPatch))) {
+      if (!addTextPair(latestPatchIndex, "contentZh", chunk, true, chunk.length)) break;
+    }
+  }
 
   items.slice(0, meta.maxArticlesPerRun).forEach((item, itemIndex) => {
+    if (itemIndex === latestPatchIndex) return;
+
     [
       ["titleZh", item.title],
       ["summaryZh", item.summary || item.title],
     ].forEach(([field, value]) => {
-      const text = String(value || "").slice(0, meta.maxCharactersPerArticle).trim();
-      if (!text || usedCharacters + text.length > meta.maxCharactersPerRun) return;
-      usedCharacters += text.length;
-      textPairs.push({ itemIndex, field, text });
+      addTextPair(itemIndex, field, value);
     });
   });
 
@@ -3654,7 +3751,13 @@ async function applyNewsTranslation(items, env, request, url) {
     const translatedItems = items.map((item) => ({ ...item }));
 
     textPairs.forEach((pair, index) => {
-      translatedItems[pair.itemIndex][pair.field] = translations[index] || translatedItems[pair.itemIndex][pair.field];
+      if (pair.append) {
+        translatedItems[pair.itemIndex][pair.field] = [translatedItems[pair.itemIndex][pair.field], translations[index]]
+          .filter(Boolean)
+          .join("\n\n");
+      } else {
+        translatedItems[pair.itemIndex][pair.field] = translations[index] || translatedItems[pair.itemIndex][pair.field];
+      }
       translatedItems[pair.itemIndex].translatedBy = meta.provider;
     });
 
@@ -3711,7 +3814,8 @@ async function handleNewsApi(request, env, url) {
   }
 
   const results = await Promise.allSettled(NEWS_FEEDS.map(fetchNewsFeed));
-  const items = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+  const feedItems = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+  const items = await hydrateLatestPatchArticle(feedItems);
   const translated = await applyNewsTranslation(items, env, request, url);
 
   const response = jsonResponse({

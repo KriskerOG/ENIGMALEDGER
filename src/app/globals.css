@@ -2163,6 +2163,20 @@ button:focus-visible {
   font-size: 16px;
 }
 
+.news-article-body {
+  max-height: 620px;
+  margin: 8px 0 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  border: 1px solid rgba(214, 168, 79, 0.22);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text);
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.65;
+}
+
 .news-link-card span,
 .news-link-card p,
 .news-link-card em {
