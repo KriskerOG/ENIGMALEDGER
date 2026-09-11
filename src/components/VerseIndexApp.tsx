@@ -497,7 +497,6 @@ interface OfficialNewsItem {
   content?: string;
   contentZh?: string;
   contentMode?: string;
-  officialUrl?: string;
 }
 
 interface NewsApiResponse {
@@ -3004,12 +3003,11 @@ export function VerseIndexApp() {
               <div className="section-title-row">
                 <div>
                   <p className="eyebrow">NEWS FEED</p>
-                  <h2>?????? / Feed</h2>
+                  <h2>官方新闻整合 / Feed</h2>
                 </div>
-                <span>CitizenWiki + RSI</span>
+                <span>Patch Notes + Comm-Link</span>
               </div>
               <p className="news-translation-note">{newsTranslationStatus}</p>
-              <p className="news-note">?????????????????</p>
               {newsError ? <p className="news-error">{newsError}</p> : null}
               <div className="news-category-grid">
                 {Object.entries(categorizedNews).length ? (
@@ -3020,23 +3018,18 @@ export function VerseIndexApp() {
                         <span>{items.length}</span>
                       </header>
                       {items.slice(0, 5).map((item) => (
-                        <article className="news-link-card" key={item.id}>
-
+                        <a className="news-link-card" href={item.url} key={item.id} rel="noreferrer" target="_blank">
                           <strong>{item.titleZh}</strong>
                           <span>{item.title}</span>
                           <p>{item.summaryZh}</p>
                           {item.contentZh ? (
                             <pre className="news-article-body">{item.contentZh}</pre>
                           ) : null}
-                          <div className="news-link-actions">
-                            <a href={item.url} rel="noreferrer" target="_blank">????</a>
-                            {item.officialUrl ? <a href={item.officialUrl} rel="noreferrer" target="_blank">????</a> : null}
-                          </div>
                           <em>
                             {item.sourceName}
                             {item.posted ? ` / ${item.posted}` : ""}
                           </em>
-                        </article>
+                        </a>
                       ))}
                     </article>
                   ))
