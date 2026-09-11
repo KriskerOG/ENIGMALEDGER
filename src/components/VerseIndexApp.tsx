@@ -1984,7 +1984,7 @@ function StatusLine({ loading, source, error }: { loading: boolean; source: stri
 }
 
 export function VerseIndexApp() {
-  const [activePanel, setActivePanel] = useState<ActivePanel>("index");
+  const [activePanel, setActivePanel] = useState<ActivePanel>("network");
   const [selectedMapId, setSelectedMapId] = useState<VerseGuideMap["id"]>("stanton");
   const [mapExpanded, setMapExpanded] = useState(false);
   const [query, setQuery] = useState("");
