@@ -1183,8 +1183,8 @@ button:focus-visible {
   top: calc(100% + 8px);
   left: 0;
   z-index: 20;
-  width: min(92vw, 980px);
-  max-height: min(76vh, 760px);
+  width: min(88vw, 820px);
+  max-height: min(80vh, 820px);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(16, 18, 22, 0.98);
@@ -1217,7 +1217,7 @@ button:focus-visible {
   display: grid;
   grid-template-columns: minmax(210px, 260px) minmax(0, 1fr);
   min-height: 280px;
-  max-height: calc(min(76vh, 760px) - 55px);
+  max-height: calc(min(80vh, 820px) - 55px);
 }
 
 .ship-cascade-manufacturers {
@@ -1261,7 +1261,7 @@ button:focus-visible {
 
 .ship-cascade-ships {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   align-content: start;
   gap: 10px;
   overflow-y: auto;
@@ -1269,10 +1269,10 @@ button:focus-visible {
 }
 
 .ship-cascade-ships button {
-  min-height: 190px;
+  min-height: 168px;
   align-self: start;
   display: grid;
-  grid-template-rows: 104px minmax(0, auto);
+  grid-template-rows: 92px minmax(0, auto);
   gap: 0;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -1320,6 +1320,7 @@ button:focus-visible {
   display: grid;
   gap: 8px;
   padding: 10px;
+  align-content: start;
 }
 
 .ship-cascade-card-text span {
@@ -1330,6 +1331,9 @@ button:focus-visible {
   font-weight: 900;
   line-height: 1.2;
   text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .selected-ship-hero {

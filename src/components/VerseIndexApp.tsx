@@ -846,6 +846,10 @@ function ShipCascadePicker({
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const shipGroups = useMemo(() => groupShipsByManufacturer(shipOptions), [shipOptions]);
+  const manufacturerGroups = useMemo(
+    () => [{ manufacturer: "All Manufacturers", ships: shipOptions }, ...shipGroups],
+    [shipGroups, shipOptions]
+  );
   const selectedManufacturer = selectedShip?.manufacturer ?? shipGroups[0]?.manufacturer ?? "Unknown";
   const [activeManufacturer, setActiveManufacturer] = useState(selectedManufacturer);
 
@@ -855,8 +859,11 @@ function ShipCascadePicker({
 
   const normalizedSearch = normalizeCatalogKey(search);
   const manufacturerShips =
-    shipGroups.find((group) => group.manufacturer === activeManufacturer)?.ships ?? shipGroups[0]?.ships ?? [];
-  const visibleShips = manufacturerShips
+    activeManufacturer === "All Manufacturers"
+      ? shipOptions
+      : shipGroups.find((group) => group.manufacturer === activeManufacturer)?.ships ?? shipGroups[0]?.ships ?? [];
+  const shipPool = normalizedSearch ? shipOptions : manufacturerShips;
+  const visibleShips = shipPool
     .filter((ship) => {
       if (!normalizedSearch) {
         return true;
@@ -865,8 +872,7 @@ function ShipCascadePicker({
       return [ship.name, ship.nameZh, ship.manufacturer, ship.role, String(ship.cargoScu)]
         .map((value) => normalizeCatalogKey(value))
         .some((value) => value.includes(normalizedSearch));
-    })
-    .slice(0, 80);
+    });
 
   function selectShip(ship: CargoShipRecord) {
     onShipChange(ship.id);
@@ -893,7 +899,7 @@ function ShipCascadePicker({
           </div>
           <div className="ship-cascade-body">
             <div className="ship-cascade-manufacturers">
-              {shipGroups.map((group) => (
+              {manufacturerGroups.map((group) => (
                 <button
                   className={activeManufacturer === group.manufacturer ? "active" : ""}
                   key={group.manufacturer}
