@@ -4,6 +4,7 @@ const ENIGMA_DATA = globalThis.__ENIGMA_WORKER_DATA__ ?? {
   sourceCatalog: [],
   localizationAliases: [],
   cargoShips: [],
+  uexCommodityNames: {},
   uexTradeLocations: [],
 };
 
@@ -128,6 +129,7 @@ const MANUAL_ENGLISH_TO_CHINESE_PAIRS = [
   ["Ranta Dung", "兰塔粪"],
   ["Scrap", "废料"],
   ["Silicon", "硅"],
+  ["Steel", "钢"],
   ["Stims", "兴奋剂"],
   ["Titanium", "钛"],
   ["Tungsten", "钨"],
@@ -1923,6 +1925,10 @@ function getStaticLocalizationAliases() {
   return Array.isArray(ENIGMA_DATA.localizationAliases) ? ENIGMA_DATA.localizationAliases : [];
 }
 
+function getStaticUexCommodityNames() {
+  return ENIGMA_DATA.uexCommodityNames && typeof ENIGMA_DATA.uexCommodityNames === "object" ? ENIGMA_DATA.uexCommodityNames : {};
+}
+
 function scoreTradeAlias(alias, purpose = "any") {
   const key = `${alias.key} ${alias.packageId} ${alias.kind}`.toLowerCase();
   let score = 0;
@@ -1990,6 +1996,22 @@ function getAliasZhByEnglishMap(purpose = "any") {
 
     if (!existing || score > existing.score || (score === existing.score && zh.length < String(existing.zh ?? "").length)) {
       scored.set(key, { zh, score });
+    }
+  }
+
+  if (purpose === "commodity" || purpose === "any") {
+    for (const [english, chinese] of Object.entries(getStaticUexCommodityNames())) {
+      const key = normalizeTradeAliasText(english);
+
+      if (!key) {
+        continue;
+      }
+
+      const existing = scored.get(key);
+
+      if (!existing) {
+        scored.set(key, { zh: chinese, score: 9000 });
+      }
     }
   }
 

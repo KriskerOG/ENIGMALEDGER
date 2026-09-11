@@ -5,6 +5,7 @@ import {
   normalizeLocalizationAliasText,
   type LocalizationAlias
 } from "../generated/localization-aliases";
+import { uexCommodityNames } from "../generated/uex-commodity-names";
 import { uexTradeLocations } from "../generated/uex-trade-locations";
 import type { FreshnessStatus, TradeRouteInput, TradeRouteRecord } from "../types";
 import { fetchJson } from "./http";
@@ -181,6 +182,7 @@ const manualEnglishToChinesePairs: Array<[string, string]> = [
   ["Ranta Dung", "兰塔粪"],
   ["Scrap", "废料"],
   ["Silicon", "硅"],
+  ["Steel", "钢"],
   ["Stims", "兴奋剂"],
   ["Titanium", "钛"],
   ["Tungsten", "钨"],
@@ -276,6 +278,22 @@ function getAliasZhByEnglishMap(purpose: "location" | "commodity" | "any" = "any
 
     if (!existing || score > existing.score || (score === existing.score && alias.zh.length < existing.zh.length)) {
       scored.set(key, { zh: alias.zh, score });
+    }
+  }
+
+  if (purpose === "commodity" || purpose === "any") {
+    for (const [english, chinese] of Object.entries(uexCommodityNames)) {
+      const key = normalizeTradeAliasText(english);
+
+      if (!key) {
+        continue;
+      }
+
+      const existing = scored.get(key);
+
+      if (!existing) {
+        scored.set(key, { zh: chinese, score: 9_000 });
+      }
     }
   }
 

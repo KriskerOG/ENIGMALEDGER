@@ -67,6 +67,7 @@ const { mockRecords, mockTradeRoutes } = loadTsExports("src/lib/mock-data.ts", [
 const { dataSourceCatalog } = loadTsExports("src/lib/sources/catalog.ts", ["dataSourceCatalog"]);
 const { localizationAliases } = loadTsExports("src/lib/generated/localization-aliases.ts", ["localizationAliases"]);
 const { cargoShipStats } = loadTsExports("src/lib/generated/cargo-ship-stats.ts", ["cargoShipStats"]);
+const { uexCommodityNames } = loadTsExports("src/lib/generated/uex-commodity-names.ts", ["uexCommodityNames"]);
 const { uexTradeLocations } = loadTsExports("src/lib/generated/uex-trade-locations.ts", ["uexTradeLocations"]);
 const workerLocalizationAliases = localizationAliases.filter((alias) =>
   ["paratranz_terms", "cn_search_v1", "cn_pinyin_v1"].includes(alias.packageId)
@@ -77,6 +78,7 @@ const workerData = {
   sourceCatalog: dataSourceCatalog,
   localizationAliases: workerLocalizationAliases,
   cargoShips: cargoShipStats,
+  uexCommodityNames,
   uexTradeLocations
 };
 const workerSource = readFileSync(path.join(root, "worker", "index.js"), "utf8");
