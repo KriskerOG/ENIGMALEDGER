@@ -15,6 +15,21 @@ const CITIZENWIKI_SEARCH_URL = "https://citizenwiki.cn/index.php";
 const STAR_CITIZEN_TOOLS_SEARCH_URL = "https://starcitizen.tools/index.php";
 const PARATRANZ_TERMS_API_URL = "https://paratranz.cn/api/projects/8340/terms";
 const PARATRANZ_TERMS_SOURCE_URL = "https://paratranz.cn/projects/8340/terms";
+const RSI_BASE_URL = "https://robertsspaceindustries.com";
+const NEWS_FEEDS = [
+  {
+    id: "patch-notes",
+    name: "RSI Patch Notes",
+    url: `${RSI_BASE_URL}/en/patch-notes`,
+    defaultCategory: "patch",
+  },
+  {
+    id: "comm-link",
+    name: "RSI Comm-Link",
+    url: `${RSI_BASE_URL}/en/comm-link`,
+    defaultCategory: "official",
+  },
+];
 const KRAKEN_IMAGE_URL =
   "https://robertsspaceindustries.com/i/246490295838c8d442391398f9bfa4069693509e/resize(2048,1024,cover,ADdPNihJzmPbNuTnFsH1DqUeqBRpXdSXVVtgJTyDDgscGKrzJuoFjResjqYHRGgyn5CBWsSTK3b9eZJ6fQD1C1ydp)/source.jpg";
 const KRAKEN_PRIVATEER_IMAGE_URL =
@@ -3370,6 +3385,322 @@ function handleSourcesApi(request) {
   });
 }
 
+function decodeNewsHtml(value) {
+  return String(value ?? "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#039;/g, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&rsquo;/g, "'")
+    .replace(/&ldquo;/g, '"')
+    .replace(/&rdquo;/g, '"')
+    .replace(/&ndash;/g, "-")
+    .replace(/&mdash;/g, "-")
+    .replace(/&hellip;/g, "...")
+    .replace(/&nbsp;/g, " ");
+}
+
+function stripNewsTags(value) {
+  return decodeNewsHtml(String(value ?? "").replace(/<[^>]+>/g, " ")).replace(/\s+/g, " ").trim();
+}
+
+function getNewsCategory(title, fallback) {
+  const normalized = String(title ?? "").toLowerCase();
+
+  if (normalized.includes("hotfix")) return "hotfix";
+  if (fallback === "patch" || normalized.includes("alpha ") || normalized.includes("patch notes")) return "patch";
+  if (normalized.includes("roadmap")) return "roadmap";
+  if (normalized.includes("this week in star citizen")) return "weekly";
+  if (normalized.includes("monthly report")) return "report";
+  if (
+    normalized.includes("pirate week") ||
+    normalized.includes("iae") ||
+    normalized.includes("luminalia") ||
+    normalized.includes("coramor") ||
+    normalized.includes("red festival") ||
+    normalized.includes("stella fortuna") ||
+    normalized.includes("invictus") ||
+    normalized.includes("alien week") ||
+    normalized.includes("foundation festival")
+  ) {
+    return "event";
+  }
+
+  return fallback;
+}
+
+function getNewsCategoryZh(category) {
+  return (
+    {
+      patch: "版本更新",
+      hotfix: "热修",
+      event: "活动",
+      roadmap: "路线图",
+      weekly: "周报",
+      report: "报告",
+      official: "官方公告",
+    }[category] ?? "官方公告"
+  );
+}
+
+function localizeNewsTitle(title, category) {
+  const replacements = [
+    [/This Week in Star Citizen/i, "本周星际公民"],
+    [/Roadmap Roundup/i, "路线图汇总"],
+    [/Star Citizen Monthly Report/i, "星际公民月度报告"],
+    [/Monthly Report/i, "月度报告"],
+    [/Pirate Week/i, "海盗周"],
+    [/Luminalia/i, "光灯节"],
+    [/Coramor/i, "科拉爱人节"],
+    [/Red Festival/i, "火红节"],
+    [/Stella Fortuna/i, "幸运星节"],
+    [/Invictus Launch Week|ILW/i, "舰队周"],
+    [/Alien Week/i, "外星周"],
+    [/Foundation Festival/i, "奠基节"],
+    [/Subscriber Promotions/i, "订阅者促销"],
+    [/Jump Point Now Available/i, "Jump Point 杂志已发布"],
+    [/Letter From The Chairman/i, "主席来信"],
+    [/Improving The Live Experience/i, "改善线上体验"],
+    [/Patch Notes/i, "补丁说明"],
+    [/Hotfix/i, "热修"],
+  ];
+
+  const translated = replacements.reduce((value, [pattern, replacement]) => value.replace(pattern, replacement), title);
+
+  if (translated !== title) return translated;
+  if (category === "patch") return `版本更新：${title}`;
+  if (category === "hotfix") return `热修：${title}`;
+  if (category === "official") return `官方公告：${title}`;
+  return title;
+}
+
+function localizeNewsSummary(summary, category) {
+  if (!summary) return `${getNewsCategoryZh(category)}新闻，点击查看官方原文。`;
+  if (category === "patch") return "版本补丁说明，建议查看原文确认具体改动。";
+  if (category === "hotfix") return "热修说明，通常包含临时修复和线上问题处理。";
+  if (category === "event") return "官方活动新闻，包含活动时间、奖励或商店内容。";
+  if (category === "roadmap") return "路线图更新，包含开发进度和计划调整。";
+  if (category === "weekly") return "官方周报，汇总本周活动和公告。";
+  if (category === "report") return "官方月报，汇总各团队开发进展。";
+  return "官方公告，点击查看原文。";
+}
+
+function getNewsTitleFromHref(href) {
+  const slug = String(href ?? "").split("/").filter(Boolean).pop() || href;
+  return decodeURIComponent(String(slug).replace(/^\d+-/, "").replace(/-/g, " "));
+}
+
+function parseNewsCardText(text, href) {
+  const fallbackTitle = getNewsTitleFromHref(href);
+  const compact = String(text ?? "").replace(/^(post|patchnotes)\s+/i, "").replace(/\s+/g, " ").trim();
+  const parts = compact.match(/^(.*?)\s+\d+\s+Posted:\s+(.+)$/i);
+
+  if (!parts) {
+    return {
+      title: fallbackTitle,
+      posted: "",
+      summary: "",
+    };
+  }
+
+  const postedMatch = parts[2].match(/^((?:\d+\s+)?(?:minute|hour|day|week|month|year)s?\s+ago|today|yesterday)\s*(.*)$/i);
+
+  return {
+    title: parts[1].trim() || fallbackTitle,
+    posted: postedMatch?.[1] ?? "",
+    summary: postedMatch?.[2]?.trim() ?? "",
+  };
+}
+
+async function fetchNewsFeed(feed) {
+  const response = await fetch(feed.url, {
+    headers: {
+      "user-agent": "ENIGMA Ledger news index/1.0",
+    },
+    cf: {
+      cacheTtl: 900,
+      cacheEverything: false,
+    },
+  });
+
+  if (!response.ok) throw new Error(`${feed.id} ${response.status}`);
+
+  const html = await response.text();
+  const matches = Array.from(html.matchAll(/<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g));
+  const seen = new Set();
+  const items = [];
+
+  for (const match of matches) {
+    const href = match[1];
+
+    if (!href.includes("/comm-link/") || href.includes("{$")) continue;
+
+    const url = href.startsWith("http") ? href : `${RSI_BASE_URL}${href}`;
+    const text = stripNewsTags(match[2]);
+
+    if (!text || seen.has(url)) continue;
+
+    seen.add(url);
+
+    const parsed = parseNewsCardText(text, href);
+    const category = getNewsCategory(parsed.title, feed.defaultCategory);
+
+    items.push({
+      id: `${feed.id}:${href}`,
+      title: parsed.title,
+      titleZh: localizeNewsTitle(parsed.title, category),
+      category,
+      categoryZh: getNewsCategoryZh(category),
+      sourceName: feed.name,
+      sourceUrl: feed.url,
+      url,
+      posted: parsed.posted,
+      summary: parsed.summary,
+      summaryZh: localizeNewsSummary(parsed.summary, category),
+    });
+
+    if (items.length >= (feed.id === "patch-notes" ? 10 : 16)) break;
+  }
+
+  return items;
+}
+
+function getNewsTranslationConfig(env, request, url) {
+  const provider = env.NEWS_TRANSLATION_PROVIDER || "none";
+  const requested = url.searchParams.get("translate") === "1";
+  const providedSecret = request.headers.get("x-enigma-sync-secret") || url.searchParams.get("secret");
+  const authorized = Boolean(requested && env.NEWS_SYNC_SECRET && providedSecret === env.NEWS_SYNC_SECRET);
+  const enabled =
+    provider === "google"
+      ? Boolean(env.GOOGLE_TRANSLATE_API_KEY)
+      : provider === "microsoft"
+        ? Boolean(env.MICROSOFT_TRANSLATOR_KEY && env.MICROSOFT_TRANSLATOR_REGION)
+        : false;
+
+  return {
+    enabled,
+    provider,
+    requested,
+    authorized,
+    translatedItems: 0,
+    usedCharacters: 0,
+    maxArticlesPerRun: Math.min(20, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_ARTICLES_PER_RUN || 3))),
+    maxCharactersPerArticle: Math.min(12000, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_CHARS_PER_ARTICLE || 3000))),
+    maxCharactersPerRun: Math.min(50000, Math.max(0, Number(env.NEWS_TRANSLATION_MAX_CHARS_PER_RUN || 9000))),
+    message: "Public read only. Translation not requested.",
+  };
+}
+
+async function translateNewsTexts(env, provider, texts) {
+  if (provider === "google") {
+    const response = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${env.GOOGLE_TRANSLATE_API_KEY}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ q: texts, source: "en", target: "zh-CN", format: "text" }),
+    });
+
+    if (!response.ok) throw new Error(`Google Translate ${response.status}`);
+    const payload = await response.json();
+    return payload?.data?.translations?.map((translation) => decodeNewsHtml(translation.translatedText || "")) || texts;
+  }
+
+  if (provider === "microsoft") {
+    const endpoint = env.MICROSOFT_TRANSLATOR_ENDPOINT || "https://api.cognitive.microsofttranslator.com";
+    const response = await fetch(`${endpoint}/translate?api-version=3.0&from=en&to=zh-Hans`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "ocp-apim-subscription-key": env.MICROSOFT_TRANSLATOR_KEY || "",
+        "ocp-apim-subscription-region": env.MICROSOFT_TRANSLATOR_REGION || "",
+      },
+      body: JSON.stringify(texts.map((text) => ({ Text: text }))),
+    });
+
+    if (!response.ok) throw new Error(`Microsoft Translator ${response.status}`);
+    const payload = await response.json();
+    return payload.map((item, index) => item?.translations?.[0]?.text || texts[index]);
+  }
+
+  return texts;
+}
+
+async function applyNewsTranslation(items, env, request, url) {
+  const meta = getNewsTranslationConfig(env, request, url);
+
+  if (!meta.requested) return { items, meta };
+  if (!meta.authorized) return { items, meta: { ...meta, message: "Translation request denied. Missing or invalid sync secret." } };
+  if (!meta.enabled) return { items, meta: { ...meta, message: "Translation provider is not configured." } };
+
+  const textPairs = [];
+  let usedCharacters = 0;
+
+  items.slice(0, meta.maxArticlesPerRun).forEach((item, itemIndex) => {
+    [
+      ["titleZh", item.title],
+      ["summaryZh", item.summary || item.title],
+    ].forEach(([field, value]) => {
+      const text = String(value || "").slice(0, meta.maxCharactersPerArticle).trim();
+      if (!text || usedCharacters + text.length > meta.maxCharactersPerRun) return;
+      usedCharacters += text.length;
+      textPairs.push({ itemIndex, field, text });
+    });
+  });
+
+  if (!textPairs.length) return { items, meta: { ...meta, message: "Translation skipped. Character limit reached or no text." } };
+
+  try {
+    const translations = await translateNewsTexts(env, meta.provider, textPairs.map((pair) => pair.text));
+    const translatedItems = items.map((item) => ({ ...item }));
+
+    textPairs.forEach((pair, index) => {
+      translatedItems[pair.itemIndex][pair.field] = translations[index] || translatedItems[pair.itemIndex][pair.field];
+      translatedItems[pair.itemIndex].translatedBy = meta.provider;
+    });
+
+    return {
+      items: translatedItems,
+      meta: {
+        ...meta,
+        translatedItems: new Set(textPairs.map((pair) => pair.itemIndex)).size,
+        usedCharacters,
+        message: "Translation completed within per-run limits.",
+      },
+    };
+  } catch {
+    return { items, meta: { ...meta, usedCharacters, message: "Translation provider failed. Fallback text returned." } };
+  }
+}
+
+async function handleNewsApi(request, env, url) {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
+  }
+
+  const rateLimit = rateLimitRequest(request, "news", 60, 60);
+  if (!rateLimit.ok) {
+    return jsonResponse({ error: "Rate limit exceeded." }, { status: 429 });
+  }
+
+  const results = await Promise.allSettled(NEWS_FEEDS.map(fetchNewsFeed));
+  const items = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+  const translated = await applyNewsTranslation(items, env, request, url);
+
+  return jsonResponse({
+    data: translated.items,
+    meta: {
+      count: translated.items.length,
+      source: "RSI official",
+      updatedAt: new Date().toISOString(),
+      translation: translated.meta,
+      providers: results.map((result, index) => ({
+        id: NEWS_FEEDS[index].id,
+        status: result.status,
+        url: NEWS_FEEDS[index].url,
+      })),
+    },
+  });
+}
+
 function handleHealthApi(request) {
   if (request.method !== "GET") {
     return jsonResponse({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
@@ -3566,6 +3897,10 @@ async function handleApi(request, env, url) {
 
   if (url.pathname === "/api/sources") {
     return handleSourcesApi(request);
+  }
+
+  if (url.pathname === "/api/news") {
+    return handleNewsApi(request, env, url);
   }
 
   if (url.pathname === "/api/trade/routes") {

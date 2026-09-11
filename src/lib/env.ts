@@ -11,7 +11,16 @@ const EnvSchema = z.object({
   KOOK_BOT_TOKEN: z.string().min(1).optional(),
   KOOK_VERIFY_TOKEN: z.string().min(1).optional(),
   KOOK_ENCRYPT_KEY: z.string().min(1).optional(),
-  KOOK_API_BASE_URL: z.string().url().default("https://www.kookapp.cn/api/v3")
+  KOOK_API_BASE_URL: z.string().url().default("https://www.kookapp.cn/api/v3"),
+  NEWS_SYNC_SECRET: z.string().min(12).optional(),
+  NEWS_TRANSLATION_PROVIDER: z.enum(["none", "google", "microsoft"]).default("none"),
+  GOOGLE_TRANSLATE_API_KEY: z.string().min(1).optional(),
+  MICROSOFT_TRANSLATOR_KEY: z.string().min(1).optional(),
+  MICROSOFT_TRANSLATOR_REGION: z.string().min(1).optional(),
+  MICROSOFT_TRANSLATOR_ENDPOINT: z.string().url().default("https://api.cognitive.microsofttranslator.com"),
+  NEWS_TRANSLATION_MAX_ARTICLES_PER_RUN: z.coerce.number().int().min(0).max(20).default(3),
+  NEWS_TRANSLATION_MAX_CHARS_PER_ARTICLE: z.coerce.number().int().min(0).max(12000).default(3000),
+  NEWS_TRANSLATION_MAX_CHARS_PER_RUN: z.coerce.number().int().min(0).max(50000).default(9000)
 });
 
 export const env = EnvSchema.parse(process.env);

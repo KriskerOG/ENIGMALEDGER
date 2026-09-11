@@ -78,6 +78,19 @@ Non-production deploy command: npx wrangler versions upload
 
 Keep Cloudflare Access disabled for the public site, otherwise visitors will be asked to sign in.
 
+Optional daily news translation is guarded by a sync secret and hard limits. Public visitors never trigger paid translation:
+
+```text
+NEWS_SYNC_SECRET=long-random-secret
+NEWS_TRANSLATION_PROVIDER=google
+GOOGLE_TRANSLATE_API_KEY=...
+NEWS_TRANSLATION_MAX_ARTICLES_PER_RUN=3
+NEWS_TRANSLATION_MAX_CHARS_PER_ARTICLE=3000
+NEWS_TRANSLATION_MAX_CHARS_PER_RUN=9000
+```
+
+Call `/api/news?translate=1` with header `x-enigma-sync-secret: <secret>` from a scheduled job. Beijing 12:00 is UTC 04:00.
+
 Localization terms are seeded from the public ParaTranz project 8340 glossary:
 
 ```text

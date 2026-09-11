@@ -2069,9 +2069,16 @@ button:focus-visible {
 }
 
 .news-note,
+.news-translation-note,
 .news-error {
   margin: 14px 0 0;
   color: var(--muted);
+}
+
+.news-translation-note {
+  margin: -4px 0 14px;
+  color: var(--gold);
+  font-size: 13px;
 }
 
 .news-error {

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { withSecurityHeaders } from "@/lib/security/headers";
+import { env } from "@/lib/env";
 
 export const runtime = "nodejs";
 
@@ -34,6 +35,20 @@ interface OfficialNewsItem {
   posted: string;
   summary: string;
   summaryZh: string;
+  translatedBy?: string;
+}
+
+interface TranslationMeta {
+  enabled: boolean;
+  provider: "none" | "google" | "microsoft";
+  requested: boolean;
+  authorized: boolean;
+  translatedItems: number;
+  usedCharacters: number;
+  maxArticlesPerRun: number;
+  maxCharactersPerArticle: number;
+  maxCharactersPerRun: number;
+  message: string;
 }
 
 function decodeHtml(value: string): string {
@@ -211,6 +226,207 @@ function parseNewsCardText(text: string, href: string): { title: string; posted:
   };
 }
 
+function getAuthorizedTranslationRequest(request: Request): { requested: boolean; authorized: boolean } {
+  const url = new URL(request.url);
+  const requested = url.searchParams.get("translate") === "1";
+
+  if (!requested || !env.NEWS_SYNC_SECRET) {
+    return {
+      requested,
+      authorized: false
+    };
+  }
+
+  const providedSecret = request.headers.get("x-enigma-sync-secret") ?? url.searchParams.get("secret");
+
+  return {
+    requested,
+    authorized: providedSecret === env.NEWS_SYNC_SECRET
+  };
+}
+
+function getTranslationEnabled(): boolean {
+  if (env.NEWS_TRANSLATION_PROVIDER === "google") {
+    return Boolean(env.GOOGLE_TRANSLATE_API_KEY);
+  }
+
+  if (env.NEWS_TRANSLATION_PROVIDER === "microsoft") {
+    return Boolean(env.MICROSOFT_TRANSLATOR_KEY && env.MICROSOFT_TRANSLATOR_REGION);
+  }
+
+  return false;
+}
+
+function createTranslationMeta(partial: Partial<TranslationMeta> = {}): TranslationMeta {
+  return {
+    enabled: getTranslationEnabled(),
+    provider: env.NEWS_TRANSLATION_PROVIDER,
+    requested: false,
+    authorized: false,
+    translatedItems: 0,
+    usedCharacters: 0,
+    maxArticlesPerRun: env.NEWS_TRANSLATION_MAX_ARTICLES_PER_RUN,
+    maxCharactersPerArticle: env.NEWS_TRANSLATION_MAX_CHARS_PER_ARTICLE,
+    maxCharactersPerRun: env.NEWS_TRANSLATION_MAX_CHARS_PER_RUN,
+    message: "Translation disabled.",
+    ...partial
+  };
+}
+
+function trimForTranslation(value: string): string {
+  return value.slice(0, env.NEWS_TRANSLATION_MAX_CHARS_PER_ARTICLE).trim();
+}
+
+async function translateWithGoogle(texts: string[]): Promise<string[]> {
+  const response = await fetch(`https://translation.googleapis.com/language/translate/v2?key=${env.GOOGLE_TRANSLATE_API_KEY}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      q: texts,
+      source: "en",
+      target: "zh-CN",
+      format: "text"
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google Translate ${response.status}`);
+  }
+
+  const payload = (await response.json()) as { data?: { translations?: Array<{ translatedText?: string }> } };
+  return payload.data?.translations?.map((translation) => decodeHtml(translation.translatedText ?? "")) ?? texts;
+}
+
+async function translateWithMicrosoft(texts: string[]): Promise<string[]> {
+  const response = await fetch(`${env.MICROSOFT_TRANSLATOR_ENDPOINT}/translate?api-version=3.0&from=en&to=zh-Hans`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "ocp-apim-subscription-key": env.MICROSOFT_TRANSLATOR_KEY ?? "",
+      "ocp-apim-subscription-region": env.MICROSOFT_TRANSLATOR_REGION ?? ""
+    },
+    body: JSON.stringify(texts.map((text) => ({ Text: text })))
+  });
+
+  if (!response.ok) {
+    throw new Error(`Microsoft Translator ${response.status}`);
+  }
+
+  const payload = (await response.json()) as Array<{ translations?: Array<{ text?: string }> }>;
+  return payload.map((item, index) => item.translations?.[0]?.text ?? texts[index]);
+}
+
+async function translateTexts(texts: string[]): Promise<string[]> {
+  if (env.NEWS_TRANSLATION_PROVIDER === "google") {
+    return translateWithGoogle(texts);
+  }
+
+  if (env.NEWS_TRANSLATION_PROVIDER === "microsoft") {
+    return translateWithMicrosoft(texts);
+  }
+
+  return texts;
+}
+
+async function applyTranslation(items: OfficialNewsItem[], request: Request): Promise<{ items: OfficialNewsItem[]; meta: TranslationMeta }> {
+  const authorization = getAuthorizedTranslationRequest(request);
+  const baseMeta = createTranslationMeta({
+    requested: authorization.requested,
+    authorized: authorization.authorized
+  });
+
+  if (!authorization.requested) {
+    return {
+      items,
+      meta: {
+        ...baseMeta,
+        message: "Public read only. Translation not requested."
+      }
+    };
+  }
+
+  if (!authorization.authorized) {
+    return {
+      items,
+      meta: {
+        ...baseMeta,
+        message: "Translation request denied. Missing or invalid sync secret."
+      }
+    };
+  }
+
+  if (!baseMeta.enabled) {
+    return {
+      items,
+      meta: {
+        ...baseMeta,
+        message: "Translation provider is not configured."
+      }
+    };
+  }
+
+  const selectedItems = items.slice(0, env.NEWS_TRANSLATION_MAX_ARTICLES_PER_RUN);
+  const textPairs: Array<{ itemIndex: number; field: "titleZh" | "summaryZh"; text: string }> = [];
+  let usedCharacters = 0;
+
+  selectedItems.forEach((item, itemIndex) => {
+    const values = [
+      { field: "titleZh" as const, text: trimForTranslation(item.title) },
+      { field: "summaryZh" as const, text: trimForTranslation(item.summary || item.title) }
+    ];
+
+    values.forEach((value) => {
+      if (!value.text || usedCharacters + value.text.length > env.NEWS_TRANSLATION_MAX_CHARS_PER_RUN) {
+        return;
+      }
+
+      usedCharacters += value.text.length;
+      textPairs.push({ itemIndex, field: value.field, text: value.text });
+    });
+  });
+
+  if (!textPairs.length) {
+    return {
+      items,
+      meta: {
+        ...baseMeta,
+        message: "Translation skipped. Character limit reached or no text."
+      }
+    };
+  }
+
+  try {
+    const translations = await translateTexts(textPairs.map((pair) => pair.text));
+    const translatedItems = items.map((item) => ({ ...item }));
+
+    textPairs.forEach((pair, index) => {
+      translatedItems[pair.itemIndex][pair.field] = translations[index] || translatedItems[pair.itemIndex][pair.field];
+      translatedItems[pair.itemIndex].translatedBy = env.NEWS_TRANSLATION_PROVIDER;
+    });
+
+    return {
+      items: translatedItems,
+      meta: {
+        ...baseMeta,
+        translatedItems: new Set(textPairs.map((pair) => pair.itemIndex)).size,
+        usedCharacters,
+        message: "Translation completed within per-run limits."
+      }
+    };
+  } catch {
+    return {
+      items,
+      meta: {
+        ...baseMeta,
+        usedCharacters,
+        message: "Translation provider failed. Fallback text returned."
+      }
+    };
+  }
+}
+
 async function fetchFeed(feed: (typeof officialFeeds)[number]): Promise<OfficialNewsItem[]> {
   const response = await fetch(feed.url, {
     headers: {
@@ -267,17 +483,19 @@ async function fetchFeed(feed: (typeof officialFeeds)[number]): Promise<Official
     .slice(0, feed.id === "patch-notes" ? 10 : 16);
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const results = await Promise.allSettled(officialFeeds.map(fetchFeed));
   const items = results.flatMap((result) => (result.status === "fulfilled" ? result.value : []));
+  const translated = await applyTranslation(items, request);
 
   return withSecurityHeaders(
     NextResponse.json({
-      data: items,
+      data: translated.items,
       meta: {
-        count: items.length,
+        count: translated.items.length,
         source: "RSI official",
         updatedAt: new Date().toISOString(),
+        translation: translated.meta,
         providers: results.map((result, index) => ({
           id: officialFeeds[index].id,
           status: result.status,

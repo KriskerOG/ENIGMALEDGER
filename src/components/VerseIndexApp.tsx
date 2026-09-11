@@ -502,6 +502,18 @@ interface NewsApiResponse {
     count: number;
     source: string;
     updatedAt: string;
+    translation?: {
+      enabled: boolean;
+      provider: string;
+      requested: boolean;
+      authorized: boolean;
+      translatedItems: number;
+      usedCharacters: number;
+      maxArticlesPerRun: number;
+      maxCharactersPerArticle: number;
+      maxCharactersPerRun: number;
+      message: string;
+    };
   };
 }
 
@@ -2014,6 +2026,7 @@ export function VerseIndexApp() {
   const [newsLoading, setNewsLoading] = useState(false);
   const [newsError, setNewsError] = useState<string>();
   const [newsUpdatedAt, setNewsUpdatedAt] = useState<string>();
+  const [newsTranslationStatus, setNewsTranslationStatus] = useState<string>("Translation off");
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
@@ -2285,6 +2298,7 @@ export function VerseIndexApp() {
 
         setNewsItems(payload.data);
         setNewsUpdatedAt(payload.meta.updatedAt);
+        setNewsTranslationStatus(payload.meta.translation?.message ?? "Translation off");
       })
       .catch(() => {
         if (!active) {
@@ -2990,6 +3004,7 @@ export function VerseIndexApp() {
                 </div>
                 <span>Patch Notes + Comm-Link</span>
               </div>
+              <p className="news-translation-note">{newsTranslationStatus}</p>
               {newsError ? <p className="news-error">{newsError}</p> : null}
               <div className="news-category-grid">
                 {Object.entries(categorizedNews).length ? (
