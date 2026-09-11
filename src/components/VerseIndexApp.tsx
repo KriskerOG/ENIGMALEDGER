@@ -41,6 +41,7 @@ const freshnessOptions: Array<{ value: FreshnessFilter; label: string }> = [
 ];
 
 type ActivePanel = "index" | "trade" | "starmap" | "network";
+type RouteStopSetting = number | "auto";
 
 const navTabs: Array<{ value: ActivePanel; label: string }> = [
   { value: "index", label: "索引" },
@@ -853,6 +854,10 @@ function getStopCountLabel(stopCount: number): string {
   return `${stopCount} 次停泊多角`;
 }
 
+function getStopSettingLabel(stopCount: RouteStopSetting): string {
+  return stopCount === "auto" ? "Auto" : getStopCountLabel(stopCount);
+}
+
 function clampRouteStopCount(value: number): number {
   if (!Number.isFinite(value)) {
     return 1;
@@ -1146,7 +1151,7 @@ function NewPlayerRouteGuide({
   routePlanMode: "direct" | "loop";
   routeSource: string;
   routes: CalculatedTradeRoute[];
-  stopCount: number;
+  stopCount: RouteStopSetting;
   selectedShip: CargoShipRecord | undefined;
 }) {
   const recommendations = buildRouteRecommendations(routes, cargoScu);
@@ -1162,7 +1167,7 @@ function NewPlayerRouteGuide({
           <span>{selectedShip?.name ?? "No ship"}</span>
           <span>{formatNumber(cargoScu)} SCU</span>
           <span>{formatNumber(budgetUec)} UEC</span>
-          <span>{routePlanMode === "loop" ? getStopCountLabel(stopCount) : "Direct"}</span>
+          <span>{routePlanMode === "loop" ? getStopSettingLabel(stopCount) : "Direct"}</span>
           <span>{getRouteModeLabel(routeMode)}</span>
         </div>
       </div>
@@ -1264,14 +1269,14 @@ function PilotShipPanel({
   onOriginChange: (value: string) => void;
   onRouteModeChange: (value: TradeRouteMode) => void;
   onShipChange: (shipId: string) => void;
-  onStopCountChange: (value: number) => void;
+  onStopCountChange: (value: RouteStopSetting) => void;
   origin: string;
   routeMode: TradeRouteMode;
   routes: CalculatedTradeRoute[];
   selectedShip: CargoShipRecord | undefined;
   shipCatalogSource: string;
   shipOptions: CargoShipRecord[];
-  stopCount: number;
+  stopCount: RouteStopSetting;
 }) {
   const [shipPickerOpen, setShipPickerOpen] = useState(false);
   const [shipSearch, setShipSearch] = useState("");
@@ -1519,13 +1524,19 @@ function PilotShipPanel({
         </label>
         <label>
           <span>Stops</span>
-          <input
-            min={1}
-            max={6}
-            type="number"
-            value={stopCount}
-            onChange={(event) => onStopCountChange(clampRouteStopCount(Number(event.currentTarget.value)))}
-          />
+          <select
+            value={String(stopCount)}
+            onChange={(event) =>
+              onStopCountChange(event.currentTarget.value === "auto" ? "auto" : clampRouteStopCount(Number(event.currentTarget.value)))
+            }
+          >
+            <option value="auto">Auto</option>
+            {[1, 2, 3, 4, 5, 6].map((count) => (
+              <option key={count} value={count}>
+                {getStopCountLabel(count)}
+              </option>
+            ))}
+          </select>
         </label>
       </div>
 
@@ -1591,7 +1602,7 @@ export function VerseIndexApp() {
   const [tradeLocationOptions, setTradeLocationOptions] = useState<TradeLocationOption[]>(() => getStaticTradeLocationOptions());
   const [routeMode, setRouteMode] = useState<TradeRouteMode>("mixed");
   const [containerSize, setContainerSize] = useState(0);
-  const [routeStopCount, setRouteStopCount] = useState(1);
+  const [routeStopCount, setRouteStopCount] = useState<RouteStopSetting>("auto");
   const [routeRefreshNonce, setRouteRefreshNonce] = useState(0);
   const [routeSearchNonce, setRouteSearchNonce] = useState(0);
   const routeRefreshConsumedRef = useRef(0);
@@ -1769,7 +1780,7 @@ export function VerseIndexApp() {
         setRouteSource(payload.meta.source);
         setRouteUpstreamCount(payload.meta.upstreamCount);
         setRoutePlanMode(payload.meta.planMode ?? "direct");
-        if (payload.meta.stopCount && payload.meta.stopCount !== routeStopCount) {
+        if (routeStopCount !== "auto" && payload.meta.stopCount && payload.meta.stopCount !== routeStopCount) {
           setRouteStopCount(clampRouteStopCount(payload.meta.stopCount));
         }
         setRoutesError(payload.meta.warning);
@@ -2265,19 +2276,25 @@ export function VerseIndexApp() {
                 </label>
                 <label>
                   <span>Stops</span>
-                  <input
-                    min={1}
-                    max={6}
-                    type="number"
-                    value={routeStopCount}
-                    onChange={(event) => setRouteStopCount(clampRouteStopCount(parsePositiveNumberInput(event.currentTarget.value, 1, 1, 6)))}
-                  />
+                  <select
+                    value={String(routeStopCount)}
+                    onChange={(event) =>
+                      setRouteStopCount(event.currentTarget.value === "auto" ? "auto" : clampRouteStopCount(Number(event.currentTarget.value)))
+                    }
+                  >
+                    <option value="auto">Auto</option>
+                    {[1, 2, 3, 4, 5, 6].map((count) => (
+                      <option key={count} value={count}>
+                        {getStopCountLabel(count)}
+                      </option>
+                    ))}
+                  </select>
                 </label>
               </div>
 
               <div className="planner-source-line">
                 <span>{selectedShip?.manufacturer ?? "Unknown"} / {getShipRole(selectedShip)}</span>
-                <span>{routePlanMode === "loop" ? getStopCountLabel(routeStopCount) : "单段规划"}</span>
+                <span>{routePlanMode === "loop" ? getStopSettingLabel(routeStopCount) : "单段规划"}</span>
                 <span>{getRouteModeLabel(routeMode)}</span>
                 <span>{containerSize ? `${containerSize} SCU 箱型` : "自动箱型"}</span>
                 <span>{tradeLocationOptions.length} UEX 地点候选</span>

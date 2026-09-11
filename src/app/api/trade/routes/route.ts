@@ -22,7 +22,7 @@ const RouteQuerySchema = z.object({
   provider: z.enum(["auto", "uex", "sample"]).optional().default("auto"),
   routeMode: z.enum(["mixed", "space"]).optional().default("mixed"),
   containerSize: z.coerce.number().int().min(0).max(32).optional().default(0),
-  stopCount: z.coerce.number().int().min(1).max(6).optional().default(1),
+  stopCount: z.union([z.literal("auto"), z.coerce.number().int().min(1).max(6)]).optional().default("auto"),
   refresh: z
     .string()
     .optional()
@@ -36,6 +36,18 @@ interface RouteResolution {
   planMode?: "direct" | "loop";
   stopCount?: number;
   warning?: string;
+}
+
+function isAutoStopCount(value: z.infer<typeof RouteQuerySchema>["stopCount"]): value is "auto" {
+  return value === "auto";
+}
+
+function normalizeStopCount(value: z.infer<typeof RouteQuerySchema>["stopCount"], fallback = 1): number {
+  return isAutoStopCount(value) ? fallback : Math.min(Math.max(value ?? fallback, 1), 6);
+}
+
+function bestRouteScore(routeResolution: RouteResolution): number {
+  return routeResolution.routes[0]?.totalProfit ?? 0;
 }
 
 interface OriginTerminalRef {
@@ -87,11 +99,13 @@ function dedupeRoutePlans(routes: CalculatedTradeRoute[]): CalculatedTradeRoute[
 
 async function resolveUexLoopRoutes(input: z.infer<typeof RouteQuerySchema>): Promise<RouteResolution> {
   const originRoutes = await fetchUexTradeRoutes({ origin: input.origin, refresh: input.refresh });
-  const stopCount = Math.min(Math.max(input.stopCount ?? 2, 2), 6);
+  const stopCount = Math.min(Math.max(normalizeStopCount(input.stopCount, 2), 2), 6);
   const budgetUec = Math.max(0, Math.floor(input.budgetUec));
   const requestedLimit = Math.min(Math.max(input.limit ?? 50, 1), 200);
-  const firstLegDestination = input.destination && !isSameTradeEndpoint(input.origin, input.destination)
-    ? resolveTradeQuery(input.destination, "location")
+  const resolvedOrigin = resolveTradeQuery(input.origin, "location");
+  const resolvedDestination = resolveTradeQuery(input.destination, "location");
+  const firstLegDestination = input.destination && !isSameTradeEndpoint(resolvedOrigin, resolvedDestination)
+    ? resolvedDestination
     : undefined;
   const leg1Candidates = calculateTradeRoutes(
     {
@@ -105,6 +119,7 @@ async function resolveUexLoopRoutes(input: z.infer<typeof RouteQuerySchema>): Pr
     originRoutes.routes
   ).filter((route) => route.destinationTerminalId);
   const plans: CalculatedTradeRoute[] = [];
+  const relaxedPlans: CalculatedTradeRoute[] = [];
   let upstreamCount = originRoutes.routes.length;
   let paths: CalculatedTradeRoute[][] = leg1Candidates.slice(0, 12).map((route) => [route]);
 
@@ -154,7 +169,7 @@ async function resolveUexLoopRoutes(input: z.infer<typeof RouteQuerySchema>): Pr
       for (const path of request.paths) {
         const currentBudget = budgetUec + path.reduce((sum, leg) => sum + leg.totalProfit, 0);
         const visitedTerminalIds = new Set(path.map((leg) => leg.destinationTerminalId).filter((id): id is number => Boolean(id)));
-        const candidates = calculateTradeRoutes(
+        const baseCandidates = calculateTradeRoutes(
         {
           cargoScu: input.cargoScu,
           budgetUec: currentBudget,
@@ -163,24 +178,39 @@ async function resolveUexLoopRoutes(input: z.infer<typeof RouteQuerySchema>): Pr
           containerSize: input.containerSize
         },
           routeResult.routes
-        )
-          .filter((route) =>
-            isFinalLeg
-              ? routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)
-              : Boolean(route.destinationTerminalId) &&
-                !visitedTerminalIds.has(route.destinationTerminalId ?? 0) &&
-                !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)
-          )
-          .slice(0, isFinalLeg ? 3 : 4);
+        );
+        const candidates = isFinalLeg
+          ? baseCandidates.filter((route) => routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)).slice(0, 3)
+          : baseCandidates
+              .filter(
+                (route) =>
+                  Boolean(route.destinationTerminalId) &&
+                  !visitedTerminalIds.has(route.destinationTerminalId ?? 0) &&
+                  !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)
+              )
+              .slice(0, 4);
+        const relaxedCandidates = isFinalLeg && !candidates.length
+          ? baseCandidates
+              .filter(
+                (route) =>
+                  Boolean(route.destinationTerminalId) &&
+                  !visitedTerminalIds.has(route.destinationTerminalId ?? 0)
+              )
+              .slice(0, 3)
+          : [];
 
-        for (const nextLeg of candidates) {
+        for (const nextLeg of [...candidates, ...relaxedCandidates]) {
           const nextPath = [...path, nextLeg];
 
           if (isFinalLeg) {
             const plan = calculateTradeRoutePlan(nextPath, input);
 
             if (plan) {
-              plans.push(plan);
+              if (candidates.includes(nextLeg)) {
+                plans.push(plan);
+              } else {
+                relaxedPlans.push(plan);
+              }
             }
           } else {
             nextPaths.push(nextPath);
@@ -194,16 +224,69 @@ async function resolveUexLoopRoutes(input: z.infer<typeof RouteQuerySchema>): Pr
       .slice(0, 48);
   }
 
+  const selectedPlans = plans.length ? plans : relaxedPlans;
+
   return {
-    routes: dedupeRoutePlans(plans)
+    routes: dedupeRoutePlans(selectedPlans)
       .sort((left, right) => right.totalProfit - left.totalProfit)
       .slice(0, input.limit),
     source: "uex-loop",
     upstreamCount,
     planMode: "loop",
     stopCount,
-    warning: plans.length ? undefined : `No profitable ${stopCount}-stop loop route found for the selected origin, budget, cargo, mode, and box size.`
+    warning: selectedPlans.length ? undefined : `No profitable ${stopCount}-stop route found for the selected origin, budget, cargo, mode, and box size.`
   };
+}
+
+async function resolveUexDirectRoutes(input: z.infer<typeof RouteQuerySchema>): Promise<RouteResolution> {
+  const uex = await fetchUexTradeRoutes({ origin: input.origin, refresh: input.refresh });
+  const sameEndpoint = isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
+  const destination = sameEndpoint ? undefined : resolveTradeQuery(input.destination, "location");
+  const routes = calculateTradeRoutes(
+    {
+      destination,
+      cargoScu: input.cargoScu,
+      budgetUec: input.budgetUec,
+      limit: input.limit,
+      routeMode: input.routeMode,
+      containerSize: input.containerSize
+    },
+    uex.routes
+  );
+
+  return {
+    routes,
+    source: "uex",
+    upstreamCount: uex.routes.length,
+    planMode: "direct",
+    stopCount: 1
+  };
+}
+
+async function resolveUexAutoRoutes(input: z.infer<typeof RouteQuerySchema>): Promise<RouteResolution> {
+  const sameEndpoint = isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
+  const attempts: RouteResolution[] = [];
+  const loopCandidates = sameEndpoint ? [3, 2, 4] : [2, 3, 4];
+
+  if (!sameEndpoint) {
+    attempts.push(await resolveUexDirectRoutes({ ...input, stopCount: 1 }));
+  }
+
+  for (const stopCount of loopCandidates) {
+    const result = await resolveUexLoopRoutes({ ...input, stopCount });
+
+    if (result.routes.length) {
+      attempts.push(result);
+    }
+  }
+
+  if (attempts.length) {
+    return attempts.sort((left, right) => bestRouteScore(right) - bestRouteScore(left))[0];
+  }
+
+  return sameEndpoint
+    ? await resolveUexLoopRoutes({ ...input, stopCount: 3 })
+    : await resolveUexDirectRoutes({ ...input, stopCount: 1 });
 }
 
 async function resolveRoutes(
@@ -212,36 +295,21 @@ async function resolveRoutes(
 ): Promise<RouteResolution> {
   if (provider !== "sample") {
     try {
-      const shouldPlanLoop = input.stopCount >= 2 || isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
+      if (isAutoStopCount(input.stopCount)) {
+        return await resolveUexAutoRoutes(input);
+      }
+
+      const stopCount = normalizeStopCount(input.stopCount, 1);
+      const shouldPlanLoop = stopCount >= 2 || isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
 
       if (shouldPlanLoop) {
         return await resolveUexLoopRoutes({
           ...input,
-          stopCount: input.stopCount >= 2 ? input.stopCount : 3
+          stopCount: stopCount >= 2 ? stopCount : 3
         });
       }
 
-      const uex = await fetchUexTradeRoutes({ origin: input.origin, refresh: input.refresh });
-      const destination = resolveTradeQuery(input.destination, "location");
-      const routes = calculateTradeRoutes(
-        {
-          destination,
-          cargoScu: input.cargoScu,
-          budgetUec: input.budgetUec,
-          limit: input.limit,
-          routeMode: input.routeMode,
-          containerSize: input.containerSize
-        },
-        uex.routes
-      );
-
-      return {
-        routes,
-        source: "uex",
-        upstreamCount: uex.routes.length,
-        planMode: "direct",
-        stopCount: 1
-      };
+      return await resolveUexDirectRoutes(input);
     } catch (error) {
       if (provider === "uex") {
         throw error;
@@ -261,7 +329,7 @@ async function resolveRoutes(
         routes,
         source: "sample",
         planMode: "direct",
-        stopCount: input.stopCount,
+        stopCount: normalizeStopCount(input.stopCount, 1),
         warning: "UEX API unavailable; using ENIGMA sample trade routes."
       };
     }
@@ -279,7 +347,7 @@ async function resolveRoutes(
     }),
     source: "sample",
     planMode: "direct",
-    stopCount: input.stopCount
+    stopCount: normalizeStopCount(input.stopCount, 1)
   };
 }
 

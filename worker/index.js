@@ -2098,7 +2098,7 @@ function localizeLocationTrail(value) {
 }
 
 function normalizeRouteIdentity(value) {
-  return normalizeUexName(value).replace(/\s+/g, "");
+  return normalizeTradeMatchText(value).replace(/\s+/g, "");
 }
 
 function isSameTradeEndpoint(left, right) {
@@ -2278,6 +2278,11 @@ function pickUexOriginTerminal(terminals, origin) {
 
 function scoreUexTerminalMatch(terminal, query) {
   const normalizedQuery = normalizeUexName(resolveTradeQuery(query, "location") || query);
+
+  if (!normalizedQuery) {
+    return 0;
+  }
+
   const compactQuery = normalizedQuery.replace(/\s+/g, "");
   const candidates = [terminal.displayname, terminal.name, terminal.fullname, terminal.nickname, terminal.code]
     .map((candidate) => normalizeUexName(candidate))
@@ -2550,7 +2555,13 @@ function mapUexRouteToTradeRoute(route, fetchedAt) {
 
 async function fetchUexTradeRoutes(env, originInput, refresh = false) {
   const origin = String(originInput || "Seraphim Station").trim() || "Seraphim Station";
-  const cacheKey = normalizeUexName(origin);
+  const originTerminal = await fetchUexOriginTerminal(env, origin, refresh);
+
+  if (!originTerminal) {
+    throw new Error(`UEX terminal not found for origin: ${origin}`);
+  }
+
+  const cacheKey = originTerminal.id ? `id:${originTerminal.id}` : normalizeUexName(origin);
   const cached = UEX_ROUTE_CACHE.get(cacheKey);
 
   if (!refresh && cached && cached.expiresAt > Date.now()) {
@@ -2558,12 +2569,6 @@ async function fetchUexTradeRoutes(env, originInput, refresh = false) {
       originTerminal: cached.originTerminal,
       routes: cached.routes,
     };
-  }
-
-  const originTerminal = await fetchUexOriginTerminal(env, origin, refresh);
-
-  if (!originTerminal) {
-    throw new Error(`UEX terminal not found for origin: ${origin}`);
   }
 
   const routeResponse = await fetchUexResource(env, "commodities_routes", {
@@ -2873,13 +2878,31 @@ function dedupeRoutePlans(routes) {
   return result;
 }
 
+function isAutoStopCount(value) {
+  return String(value ?? "").trim().toLowerCase() === "auto";
+}
+
+function normalizeStopCount(value, fallback = 1) {
+  if (isAutoStopCount(value)) {
+    return fallback;
+  }
+
+  return clampInteger(value, fallback, 1, 6);
+}
+
+function bestRouteScore(routeResolution) {
+  return routeResolution.routes[0]?.totalProfit ?? 0;
+}
+
 async function resolveUexLoopRoutes(env, input) {
   const originRoutes = await fetchUexTradeRoutes(env, input.origin, input.refresh);
   const budgetUec = clampInteger(input.budgetUec, 750000, 0, 100000000);
   const requestedLimit = clampInteger(input.limit, 10, 1, 200);
-  const stopCount = clampInteger(input.stopCount, 2, 2, 6);
+  const stopCount = Math.min(Math.max(normalizeStopCount(input.stopCount, 2), 2), 6);
+  const resolvedOrigin = resolveTradeQuery(input.origin, "location");
+  const resolvedDestination = resolveTradeQuery(input.destination, "location");
   const firstLegDestination =
-    input.destination && !isSameTradeEndpoint(input.origin, input.destination) ? resolveTradeQuery(input.destination, "location") : undefined;
+    input.destination && !isSameTradeEndpoint(resolvedOrigin, resolvedDestination) ? resolvedDestination : undefined;
   const leg1Candidates = calculateTradeRoutes(
     {
       destination: firstLegDestination,
@@ -2892,6 +2915,7 @@ async function resolveUexLoopRoutes(env, input) {
     originRoutes.routes,
   ).filter((route) => route.destinationTerminalId);
   const plans = [];
+  const relaxedPlans = [];
   let upstreamCount = originRoutes.routes.length;
   let paths = leg1Candidates.slice(0, 12).map((route) => [route]);
 
@@ -2939,7 +2963,7 @@ async function resolveUexLoopRoutes(env, input) {
       for (const path of request.paths) {
         const currentBudget = budgetUec + path.reduce((sum, leg) => sum + leg.totalProfit, 0);
         const visitedTerminalIds = new Set(path.map((leg) => leg.destinationTerminalId).filter(Boolean));
-        const candidates = calculateTradeRoutes(
+        const baseCandidates = calculateTradeRoutes(
           {
             cargoScu: input.cargoScu,
             budgetUec: currentBudget,
@@ -2948,24 +2972,36 @@ async function resolveUexLoopRoutes(env, input) {
             containerSize: input.containerSize,
           },
           routeResult.routes,
-        )
-          .filter((route) =>
-            isFinalLeg
-              ? routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)
-              : Boolean(route.destinationTerminalId) &&
-                !visitedTerminalIds.has(route.destinationTerminalId) &&
-                !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal),
-          )
-          .slice(0, isFinalLeg ? 3 : 4);
+        );
+        const candidates = isFinalLeg
+          ? baseCandidates.filter((route) => routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal)).slice(0, 3)
+          : baseCandidates
+              .filter(
+                (route) =>
+                  Boolean(route.destinationTerminalId) &&
+                  !visitedTerminalIds.has(route.destinationTerminalId) &&
+                  !routeReturnsToOrigin(route, input.origin, originRoutes.originTerminal),
+              )
+              .slice(0, 4);
+        const relaxedCandidates =
+          isFinalLeg && !candidates.length
+            ? baseCandidates
+                .filter((route) => Boolean(route.destinationTerminalId) && !visitedTerminalIds.has(route.destinationTerminalId))
+                .slice(0, 3)
+            : [];
 
-        for (const nextLeg of candidates) {
+        for (const nextLeg of [...candidates, ...relaxedCandidates]) {
           const nextPath = [...path, nextLeg];
 
           if (isFinalLeg) {
             const plan = calculateTradeRoutePlan(nextPath, input);
 
             if (plan) {
-              plans.push(plan);
+              if (candidates.includes(nextLeg)) {
+                plans.push(plan);
+              } else {
+                relaxedPlans.push(plan);
+              }
             }
           } else {
             nextPaths.push(nextPath);
@@ -2979,22 +3015,79 @@ async function resolveUexLoopRoutes(env, input) {
       .slice(0, 48);
   }
 
+  const selectedPlans = plans.length ? plans : relaxedPlans;
+
   return {
-    routes: dedupeRoutePlans(plans)
+    routes: dedupeRoutePlans(selectedPlans)
       .sort((left, right) => right.totalProfit - left.totalProfit)
       .slice(0, requestedLimit),
     source: "uex-loop",
     upstreamCount,
     planMode: "loop",
     stopCount,
-    warning: plans.length ? undefined : `No profitable ${stopCount}-stop loop route found for the selected origin, budget, cargo, mode, and box size.`,
+    warning: selectedPlans.length ? undefined : `No profitable ${stopCount}-stop route found for the selected origin, budget, cargo, mode, and box size.`,
   };
+}
+
+async function resolveUexDirectRoutes(env, input) {
+  const uex = await fetchUexTradeRoutes(env, input.origin, input.refresh);
+  const sameEndpoint = isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
+  const destination = sameEndpoint ? undefined : resolveTradeQuery(input.destination, "location");
+  const routes = calculateTradeRoutes(
+    {
+      destination,
+      cargoScu: input.cargoScu,
+      budgetUec: input.budgetUec,
+      limit: input.limit,
+      routeMode: input.routeMode,
+      containerSize: input.containerSize,
+    },
+    uex.routes,
+  );
+
+  return {
+    routes,
+    source: "uex",
+    upstreamCount: uex.routes.length,
+    planMode: "direct",
+    stopCount: 1,
+  };
+}
+
+async function resolveUexAutoRoutes(env, input) {
+  const sameEndpoint = isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
+  const attempts = [];
+  const loopCandidates = sameEndpoint ? [3, 2, 4] : [2, 3, 4];
+
+  if (!sameEndpoint) {
+    attempts.push(await resolveUexDirectRoutes(env, { ...input, stopCount: 1 }));
+  }
+
+  for (const stopCount of loopCandidates) {
+    const result = await resolveUexLoopRoutes(env, { ...input, stopCount });
+
+    if (result.routes.length) {
+      attempts.push(result);
+    }
+  }
+
+  if (attempts.length) {
+    return attempts.sort((left, right) => bestRouteScore(right) - bestRouteScore(left))[0];
+  }
+
+  return sameEndpoint
+    ? await resolveUexLoopRoutes(env, { ...input, stopCount: 3 })
+    : await resolveUexDirectRoutes(env, { ...input, stopCount: 1 });
 }
 
 async function resolveTradeRoutes(env, input, provider) {
   if (provider !== "sample") {
     try {
-      const stopCount = clampInteger(input.stopCount, 1, 1, 6);
+      if (isAutoStopCount(input.stopCount)) {
+        return await resolveUexAutoRoutes(env, input);
+      }
+
+      const stopCount = normalizeStopCount(input.stopCount, 1);
       const shouldPlanLoop =
         stopCount >= 2 || isSameTradeEndpoint(resolveTradeQuery(input.origin, "location"), resolveTradeQuery(input.destination, "location"));
 
@@ -3035,7 +3128,7 @@ async function resolveTradeRoutes(env, input, provider) {
         routes: calculateTradeRoutes(input),
         source: "sample",
         planMode: "direct",
-        stopCount: input.stopCount,
+        stopCount: normalizeStopCount(input.stopCount, 1),
         warning: "UEX API unavailable; using ENIGMA sample trade routes.",
       };
     }
@@ -3045,7 +3138,7 @@ async function resolveTradeRoutes(env, input, provider) {
     routes: calculateTradeRoutes(input),
     source: "sample",
     planMode: "direct",
-    stopCount: input.stopCount,
+    stopCount: normalizeStopCount(input.stopCount, 1),
   };
 }
 

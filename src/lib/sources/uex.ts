@@ -593,6 +593,11 @@ function pickOriginTerminal(terminals: UexTerminal[], origin: string): UexTermin
 
 function scoreTerminalMatch(terminal: UexTerminal, query: string): number {
   const normalizedQuery = normalizeName(resolveTradeQuery(query, "location") || query);
+
+  if (!normalizedQuery) {
+    return 0;
+  }
+
   const compactQuery = normalizedQuery.replace(/\s+/g, "");
   const candidates = [terminal.displayname, terminal.name, terminal.fullname, terminal.nickname, terminal.code]
     .map((candidate) => normalizeName(candidate))
@@ -897,7 +902,13 @@ export async function fetchUexTradeRoutes(
   input: Pick<TradeRouteInput, "origin"> & { refresh?: boolean }
 ): Promise<UexTradeRoutesResult> {
   const origin = input.origin?.trim() || "Seraphim Station";
-  const cacheKey = normalizeName(origin);
+  const originTerminal = await fetchOriginTerminal(origin, input.refresh);
+
+  if (!originTerminal) {
+    throw new Error(`UEX terminal not found for origin: ${origin}`);
+  }
+
+  const cacheKey = originTerminal.id ? `id:${originTerminal.id}` : normalizeName(origin);
   const cached = uexRouteCache.get(cacheKey);
 
   if (!input.refresh && cached && cached.expiresAt > Date.now()) {
@@ -905,12 +916,6 @@ export async function fetchUexTradeRoutes(
       originTerminal: cached.originTerminal,
       routes: cached.routes
     };
-  }
-
-  const originTerminal = await fetchOriginTerminal(origin, input.refresh);
-
-  if (!originTerminal) {
-    throw new Error(`UEX terminal not found for origin: ${origin}`);
   }
 
   const routeResponse = await fetchUexResource<UexCommodityRoute[]>("commodities_routes", {

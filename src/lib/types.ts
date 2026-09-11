@@ -75,7 +75,7 @@ export interface TradeRouteInput {
   limit?: number;
   routeMode?: TradeRouteMode;
   containerSize?: number;
-  stopCount?: number;
+  stopCount?: number | "auto";
 }
 
 export type TradeRouteProvider = "auto" | "uex" | "sample";
