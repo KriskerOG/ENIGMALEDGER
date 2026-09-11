@@ -914,8 +914,17 @@ function ShipCascadePicker({
                     type="button"
                     onClick={() => selectShip(ship)}
                   >
-                    <span>{formatShipName(ship)}</span>
-                    <small>{getShipCargoScu(ship)} SCU</small>
+                    <div className="ship-cascade-image">
+                      {ship.imageUrl ? (
+                        <img src={ship.imageUrl} alt={`${ship.name} ship render`} loading="lazy" />
+                      ) : (
+                        <span>{ship.manufacturerCode ?? manufacturerCodeFromName(ship.manufacturer)}</span>
+                      )}
+                    </div>
+                    <div className="ship-cascade-card-text">
+                      <span>{formatShipName(ship)}</span>
+                      <small>{getShipCargoScu(ship)} SCU</small>
+                    </div>
                   </button>
                 ))
               ) : (
