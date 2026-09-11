@@ -1936,6 +1936,26 @@ button:focus-visible {
   line-height: 1.7;
 }
 
+.network-panel .network-title-en {
+  margin-top: -10px;
+  color: var(--gold);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.network-copy {
+  max-width: 860px;
+  margin-top: 18px;
+}
+
+.network-copy p {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1.7;
+}
+
 .charter-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1977,6 +1997,15 @@ button:focus-visible {
   line-height: 1.5;
 }
 
+.source-purpose-list {
+  min-height: 76px;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  gap: 8px;
+  margin: 14px 0;
+}
+
 .source-grid span {
   display: inline-flex;
   min-height: 24px;
@@ -2007,7 +2036,16 @@ button:focus-visible {
   margin: 18px 0 10px;
 }
 
+.charter-grid h2 small {
+  display: block;
+  margin-top: 6px;
+  color: var(--soft);
+  font-size: 15px;
+  font-weight: 700;
+}
+
 .charter-grid p {
+  margin: 0 0 8px;
   color: var(--muted);
   line-height: 1.6;
 }

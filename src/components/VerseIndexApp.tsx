@@ -92,6 +92,46 @@ const verseGuideMaps = [
   }
 ] as const;
 
+const sourcePurposeLabels: Record<string, string> = {
+  search_database: "搜索数据库",
+  ship_cargo_stats: "飞船货仓数据",
+  cargo_ship_catalog: "货运飞船目录",
+  ships: "飞船",
+  vehicles: "载具",
+  components: "组件",
+  items: "物品",
+  locations: "地点",
+  manufacturers: "制造商",
+  chinese_wiki: "中文百科",
+  localized_reference: "中文汉化参考",
+  star_wiki_cross_link: "英文百科交叉链接",
+  commodities: "货物",
+  commodity_prices: "货物价格",
+  trade_terminals: "贸易终端",
+  trade_routes: "贸易航线",
+  shops: "商店",
+  terminals: "终端",
+  "trade_cross-checking": "贸易交叉校验",
+  "trade cross-checking": "贸易交叉校验",
+  starmap: "星图",
+  surface_navigation: "地表导航",
+  route_planning: "航线规划"
+};
+
+const sourceStatusLabels: Record<string, string> = {
+  enabled: "已启用 / enabled",
+  planned: "计划中 / planned",
+  disabled: "未启用 / disabled"
+};
+
+const sourceCadenceLabels: Record<string, string> = {
+  daily: "每日 / daily",
+  "15m-60m for trade data": "贸易数据 15-60 分钟 / 15m-60m for trade data",
+  "daily or cross-check only": "每日或仅交叉校验 / daily or cross-check only",
+  "embedded live page": "嵌入实时页面 / embedded live page",
+  "linked live page": "链接实时页面 / linked live page"
+};
+
 const typeLabels: Record<string, string> = {
   ship: "舰船",
   vehicle: "载具",
@@ -2457,24 +2497,32 @@ export function VerseIndexApp() {
 
         {activePanel === "network" ? (
           <section className="network-panel">
-            <p className="eyebrow">ENIGMA ORGANIZATION</p>
-            <h1>TRUST - TRADE - NEUTRALITY - FREEDOM</h1>
-            <p>
-              ENIGMA exists to make independent pilots, traders, miners, haulers, escorts, and explorers able to
-              cooperate through contracts, reputation, and neutral commerce.
-            </p>
+            <p className="eyebrow">ENIGMA ORGANIZATION / ENIGMA 组织</p>
+            <h1>信誉 - 贸易 - 中立 - 自由</h1>
+            <p className="network-title-en">TRUST - TRADE - NEUTRALITY - FREEDOM</p>
+            <div className="network-copy">
+              <p>ENIGMA 让独立飞行员、商人、矿工、运输者、护航与探索者，通过契约、信誉和中立贸易建立合作。</p>
+              <p>
+                ENIGMA helps independent pilots, traders, miners, haulers, escorts, and explorers cooperate through
+                contracts, reputation, and neutral commerce.
+              </p>
+            </div>
 
             <div className="source-grid" aria-label="Data sources">
               {sourceCatalog.map((source) => (
                 <article key={source.id}>
                   <header>
                     <h2>{source.name}</h2>
-                    <span>{source.status}</span>
+                    <span>{sourceStatusLabels[source.status] ?? source.status}</span>
                   </header>
-                  <p>{source.purpose.join(", ")}</p>
+                  <div className="source-purpose-list">
+                    {source.purpose.map((purpose) => (
+                      <span key={purpose}>{sourcePurposeLabels[purpose] ? `${sourcePurposeLabels[purpose]} / ${purpose}` : purpose}</span>
+                    ))}
+                  </div>
                   <footer>
-                    <span>{source.requiresToken ? "Token required" : "No token"}</span>
-                    <span>{source.recommendedCadence}</span>
+                    <span>{source.requiresToken ? "需要密钥 / Token required" : "无需密钥 / No token"}</span>
+                    <span>{sourceCadenceLabels[source.recommendedCadence] ?? source.recommendedCadence}</span>
                   </footer>
                 </article>
               ))}
@@ -2483,17 +2531,29 @@ export function VerseIndexApp() {
             <div className="charter-grid">
               <article>
                 <span>I</span>
-                <h2>Honor The Contract</h2>
+                <h2>
+                  契约大于一切
+                  <small>Honor The Contract</small>
+                </h2>
+                <p>网络认可的交易，必须按照确认条件履行。</p>
                 <p>A deal accepted through the network must be fulfilled under the confirmed terms.</p>
               </article>
               <article>
                 <span>II</span>
-                <h2>Protect The Network</h2>
+                <h2>
+                  保护贸易网络
+                  <small>Protect The Network</small>
+                </h2>
+                <p>中立贸易需要保护飞船、货物、航线与可信伙伴的能力。</p>
                 <p>Neutral trade requires the ability to defend ships, cargo, routes, and trusted partners.</p>
               </article>
               <article>
                 <span>III</span>
-                <h2>Never Betray The Ledger</h2>
+                <h2>
+                  永不背叛信誉
+                  <small>Never Betray The Ledger</small>
+                </h2>
+                <p>信誉是组织的核心资产，必须比任何单次任务、飞船或余额更持久。</p>
                 <p>Reputation is the organization's core asset and must outlast any single job, ship, or balance.</p>
               </article>
             </div>
