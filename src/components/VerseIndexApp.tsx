@@ -494,9 +494,6 @@ interface OfficialNewsItem {
   posted: string;
   summary: string;
   summaryZh: string;
-  content?: string;
-  contentZh?: string;
-  contentMode?: string;
 }
 
 interface NewsApiResponse {
@@ -3022,9 +3019,6 @@ export function VerseIndexApp() {
                           <strong>{item.titleZh}</strong>
                           <span>{item.title}</span>
                           <p>{item.summaryZh}</p>
-                          {item.contentZh ? (
-                            <pre className="news-article-body">{item.contentZh}</pre>
-                          ) : null}
                           <em>
                             {item.sourceName}
                             {item.posted ? ` / ${item.posted}` : ""}
