@@ -1135,7 +1135,7 @@ function getInventoryStatus(route: CalculatedTradeRoute, cargoScu: number): { la
 
   if (availableScu === undefined) {
     return {
-      label: "库存可信度：中",
+      label: "UEX低库存风险：中",
       detail: `${updatedAt} / UEX 未公开库存量`,
       tone: "medium"
     };
@@ -1143,24 +1143,24 @@ function getInventoryStatus(route: CalculatedTradeRoute, cargoScu: number): { la
 
   if (availableScu < cargoScu || availableScu < route.purchasableScu * 1.1) {
     return {
-      label: "低库存风险",
+      label: "UEX低库存风险：高",
       detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
-      tone: "low"
+      tone: "high"
     };
   }
 
   if (route.source.freshness === "stale" || availableScu < cargoScu * 2) {
     return {
-      label: "库存可信度：中",
+      label: "UEX低库存风险：中",
       detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
       tone: "medium"
     };
   }
 
   return {
-    label: "库存可信度：高",
+    label: "UEX低库存风险：低",
     detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
-    tone: "high"
+    tone: "low"
   };
 }
 
@@ -2325,6 +2325,13 @@ export function VerseIndexApp() {
               </div>
 
               <StatusLine loading={routesLoading} source={routeSource} error={routesError} />
+              <div className="inventory-risk-note">
+                <strong>UEX低库存风险算法</strong>
+                <span>低：库存≥当前货仓2倍且数据较新。</span>
+                <span>中：库存够装但不足2倍，或数据旧/未公开库存。</span>
+                <span>高：库存低于当前货仓，或接近预计购买量。</span>
+                <em>UEX low-stock risk: Low means enough and fresh; Medium means limited, stale, or unknown stock; High means likely short stock.</em>
+              </div>
 
               <NewPlayerRouteGuide
                 budgetUec={budgetUec}
@@ -2425,11 +2432,7 @@ export function VerseIndexApp() {
                       )}
                       <span>{getRouteKindLabel(route)}</span>
                       <span>Risk {route.risk}</span>
-                      {typeof route.availableScu === "number" ? (
-                        <span>{formatNumber(route.availableScu)} SCU available</span>
-                      ) : null}
                       <span className={`inventory-pill ${inventoryStatus.tone}`}>{inventoryStatus.label}</span>
-                      <span>{inventoryStatus.detail}</span>
                       <span>{getRouteStationMode(route)}</span>
                       <span>{formatContainerSizes(route)}</span>
                       {typeof route.distanceGm === "number" ? <span>{formatNumber(route.distanceGm)} GM</span> : null}

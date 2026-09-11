@@ -690,7 +690,7 @@ button:focus-visible {
   text-decoration: none;
 }
 
-.source-row .inventory-pill.high {
+.source-row .inventory-pill.low {
   border-color: rgba(80, 220, 130, 0.34);
   color: var(--green);
 }
@@ -700,9 +700,30 @@ button:focus-visible {
   color: var(--gold);
 }
 
-.source-row .inventory-pill.low {
+.source-row .inventory-pill.high {
   border-color: rgba(235, 96, 82, 0.42);
   color: #ff8f84;
+}
+
+.inventory-risk-note {
+  display: grid;
+  gap: 6px;
+  margin-top: 10px;
+  border: 1px solid rgba(214, 168, 79, 0.22);
+  background: rgba(214, 168, 79, 0.055);
+  padding: 10px 12px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.inventory-risk-note strong {
+  color: var(--gold);
+}
+
+.inventory-risk-note em {
+  color: var(--soft);
+  font-style: normal;
 }
 
 .tag-row span {
