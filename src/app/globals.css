@@ -1923,6 +1923,241 @@ button:focus-visible {
   border-color: rgba(214, 168, 79, 0.64);
 }
 
+.news-panel {
+  display: grid;
+  gap: 22px;
+}
+
+.news-heading,
+.countdown-section,
+.official-source-section,
+.official-news-section {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(17, 21, 27, 0.92);
+  box-shadow: var(--shadow);
+}
+
+.news-heading {
+  padding: 22px;
+}
+
+.news-time {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  color: var(--muted);
+}
+
+.news-time strong {
+  color: var(--text);
+  font-size: 18px;
+}
+
+.countdown-section,
+.official-source-section,
+.official-news-section {
+  padding: 20px;
+}
+
+.section-title-row {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.section-title-row h2 {
+  margin: 0;
+  font-size: 28px;
+}
+
+.section-title-row > span {
+  color: var(--gold);
+  font-weight: 800;
+}
+
+.event-countdown-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.event-card {
+  min-height: 116px;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.045);
+}
+
+.event-mark {
+  display: grid;
+  width: 56px;
+  height: 56px;
+  place-items: center;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  font-weight: 900;
+}
+
+.event-card.red .event-mark {
+  background: rgba(221, 80, 80, 0.22);
+  color: #ff8b7c;
+}
+
+.event-card.violet .event-mark,
+.event-card.purple .event-mark {
+  background: rgba(142, 111, 255, 0.2);
+  color: #c6b6ff;
+}
+
+.event-card.white .event-mark {
+  background: rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+}
+
+.event-card.orange .event-mark {
+  background: rgba(214, 168, 79, 0.2);
+  color: var(--gold);
+}
+
+.event-card.green .event-mark,
+.event-card.teal .event-mark {
+  background: rgba(89, 210, 117, 0.16);
+  color: #7fe28b;
+}
+
+.event-card.blue .event-mark,
+.event-card.cyan .event-mark {
+  background: rgba(80, 172, 255, 0.18);
+  color: #8ed0ff;
+}
+
+.event-card h3 {
+  margin: 0 0 8px;
+  font-size: 17px;
+}
+
+.event-card h3 small {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.event-card strong {
+  display: block;
+  color: var(--text);
+  font-size: 24px;
+}
+
+.event-card em {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-style: normal;
+}
+
+.news-note,
+.news-error {
+  margin: 14px 0 0;
+  color: var(--muted);
+}
+
+.news-error {
+  color: #ff7d6e;
+}
+
+.official-source-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.official-source-grid a,
+.news-category-card,
+.news-link-card {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.official-source-grid a {
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.official-source-grid strong {
+  font-size: 19px;
+}
+
+.official-source-grid small,
+.official-source-grid em {
+  color: var(--muted);
+  font-style: normal;
+}
+
+.official-source-grid span {
+  color: var(--text);
+}
+
+.news-category-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.news-category-card {
+  padding: 14px;
+}
+
+.news-category-card header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.news-category-card h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.news-category-card header span {
+  color: var(--gold);
+  font-weight: 900;
+}
+
+.news-link-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.news-link-card + .news-link-card {
+  margin-top: 10px;
+}
+
+.news-link-card strong {
+  font-size: 16px;
+}
+
+.news-link-card span,
+.news-link-card p,
+.news-link-card em {
+  margin: 0;
+  color: var(--muted);
+  font-style: normal;
+  line-height: 1.45;
+}
+
 .network-panel {
   min-height: 540px;
   display: grid;
@@ -2201,6 +2436,9 @@ button:focus-visible {
   .recommendation-stats,
   .route-detail-grid,
   .route-leg-list div,
+  .event-countdown-grid,
+  .official-source-grid,
+  .news-category-grid,
   .source-grid,
   .charter-grid {
     grid-template-columns: 1fr;

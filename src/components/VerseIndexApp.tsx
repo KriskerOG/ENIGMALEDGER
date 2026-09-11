@@ -40,13 +40,14 @@ const freshnessOptions: Array<{ value: FreshnessFilter; label: string }> = [
   { value: "unknown", label: "Unknown" }
 ];
 
-type ActivePanel = "index" | "trade" | "starmap" | "network";
+type ActivePanel = "index" | "trade" | "starmap" | "news" | "network";
 type RouteStopSetting = number | "auto";
 
 const navTabs: Array<{ value: ActivePanel; label: string }> = [
   { value: "index", label: "索引" },
   { value: "trade", label: "贸易" },
   { value: "starmap", label: "星图" },
+  { value: "news", label: "新闻" },
   { value: "network", label: "网络" }
 ];
 
@@ -132,6 +133,123 @@ const sourceCadenceLabels: Record<string, string> = {
   "linked live page": "链接实时页面 / linked live page"
 };
 
+const starCitizenEvents = [
+  {
+    id: "pirate-week",
+    nameZh: "海盗节",
+    nameEn: "Pirate Week",
+    month: 9,
+    day: 9,
+    durationDays: 8,
+    mark: "PW",
+    tone: "red"
+  },
+  {
+    id: "iae",
+    nameZh: "星际航空航天博览会",
+    nameEn: "IAE",
+    month: 11,
+    day: 21,
+    durationDays: 14,
+    mark: "IAE",
+    tone: "violet"
+  },
+  {
+    id: "luminalia",
+    nameZh: "光灯节",
+    nameEn: "Luminalia",
+    month: 12,
+    day: 12,
+    durationDays: 21,
+    mark: "LM",
+    tone: "white"
+  },
+  {
+    id: "coramor",
+    nameZh: "科拉爱人节",
+    nameEn: "Coramor",
+    month: 2,
+    day: 11,
+    durationDays: 7,
+    mark: "CO",
+    tone: "purple"
+  },
+  {
+    id: "red-festival",
+    nameZh: "火红节",
+    nameEn: "Red Festival",
+    month: 2,
+    day: 17,
+    durationDays: 14,
+    mark: "RF",
+    tone: "orange"
+  },
+  {
+    id: "stella-fortuna",
+    nameZh: "幸运星节",
+    nameEn: "Stella Fortuna",
+    month: 3,
+    day: 18,
+    durationDays: 7,
+    mark: "SF",
+    tone: "green"
+  },
+  {
+    id: "ilw",
+    nameZh: "舰队周",
+    nameEn: "ILW",
+    month: 5,
+    day: 15,
+    durationDays: 14,
+    mark: "ILW",
+    tone: "blue"
+  },
+  {
+    id: "alien-week",
+    nameZh: "外星周",
+    nameEn: "Alien Week",
+    month: 6,
+    day: 17,
+    durationDays: 7,
+    mark: "AW",
+    tone: "cyan"
+  },
+  {
+    id: "foundation",
+    nameZh: "奠基节",
+    nameEn: "Foundation Festival",
+    month: 7,
+    day: 29,
+    durationDays: 14,
+    mark: "FF",
+    tone: "teal"
+  }
+] as const;
+
+const officialNewsSources = [
+  {
+    titleZh: "版本更新",
+    titleEn: "Patch Notes",
+    url: "https://robertsspaceindustries.com/en/patch-notes",
+    noteZh: "正式版本、补丁说明、热修入口。",
+    noteEn: "Version updates, patch notes, and hotfix references."
+  },
+  {
+    titleZh: "官方公告",
+    titleEn: "Comm-Link",
+    url: "https://robertsspaceindustries.com/en/comm-link",
+    noteZh: "活动、周报、月报、路线图汇总。",
+    noteEn: "Events, weekly posts, monthly reports, and roadmap roundups."
+  },
+  {
+    titleZh: "社区精选",
+    titleEn: "Community Hub",
+    url: "https://robertsspaceindustries.com/community-hub",
+    noteZh: "官方站内社区内容；只做参考，不作为版本事实源。",
+    noteEn: "Official-site community content; reference only, not a patch source."
+  }
+] as const;
+
 const typeLabels: Record<string, string> = {
   ship: "舰船",
   vehicle: "载具",
@@ -209,6 +327,29 @@ interface SourcesApiResponse {
   };
 }
 
+interface OfficialNewsItem {
+  id: string;
+  title: string;
+  titleZh: string;
+  category: string;
+  categoryZh: string;
+  sourceName: string;
+  sourceUrl: string;
+  url: string;
+  posted: string;
+  summary: string;
+  summaryZh: string;
+}
+
+interface NewsApiResponse {
+  data: OfficialNewsItem[];
+  meta: {
+    count: number;
+    source: string;
+    updatedAt: string;
+  };
+}
+
 interface SourceFootnote {
   index: number;
   key: string;
@@ -234,6 +375,58 @@ interface RouteRecommendation {
 
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+function getBeijingDateParts(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date);
+
+  const read = (type: string) => Number(parts.find((part) => part.type === type)?.value ?? 0);
+
+  return {
+    year: read("year"),
+    month: read("month"),
+    day: read("day")
+  };
+}
+
+function createBeijingDate(year: number, month: number, day: number): Date {
+  return new Date(Date.UTC(year, month - 1, day, -8, 0, 0));
+}
+
+function formatCountdownTime(milliseconds: number): string {
+  const safeMs = Math.max(0, milliseconds);
+  const totalSeconds = Math.floor(safeMs / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  return `${days}天 ${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function getEventCountdown(event: (typeof starCitizenEvents)[number], now: Date) {
+  const beijing = getBeijingDateParts(now);
+  const currentStart = createBeijingDate(beijing.year, event.month, event.day);
+  const currentEnd = new Date(currentStart.getTime() + event.durationDays * 86400000);
+  const nextStart =
+    now.getTime() < currentEnd.getTime() ? currentStart : createBeijingDate(beijing.year + 1, event.month, event.day);
+  const nextEnd = new Date(nextStart.getTime() + event.durationDays * 86400000);
+  const ongoing = now.getTime() >= nextStart.getTime() && now.getTime() < nextEnd.getTime();
+  const milliseconds = ongoing ? nextEnd.getTime() - now.getTime() : nextStart.getTime() - now.getTime();
+
+  return {
+    ...event,
+    ongoing,
+    startAt: nextStart,
+    endAt: nextEnd,
+    milliseconds,
+    countdown: formatCountdownTime(milliseconds)
+  };
 }
 
 function parsePositiveNumberInput(value: string, fallback = 0, min = 0, max = 100000000): number {
@@ -1661,6 +1854,17 @@ export function VerseIndexApp() {
   const [routesError, setRoutesError] = useState<string>();
   const [sourceCatalog, setSourceCatalog] = useState<DataSourceCatalogItem[]>([]);
   const [routePlanMode, setRoutePlanMode] = useState<"direct" | "loop">("direct");
+  const [clockNow, setClockNow] = useState(() => new Date());
+  const [newsItems, setNewsItems] = useState<OfficialNewsItem[]>([]);
+  const [newsLoading, setNewsLoading] = useState(false);
+  const [newsError, setNewsError] = useState<string>();
+  const [newsUpdatedAt, setNewsUpdatedAt] = useState<string>();
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setClockNow(new Date()), 1000);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1902,6 +2106,51 @@ export function VerseIndexApp() {
   }, []);
 
   useEffect(() => {
+    if (activePanel !== "news") {
+      return;
+    }
+
+    let active = true;
+
+    setNewsLoading(true);
+    setNewsError(undefined);
+
+    fetch("/api/news")
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`News API ${response.status}`);
+        }
+
+        return response.json() as Promise<NewsApiResponse>;
+      })
+      .then((payload) => {
+        if (!active) {
+          return;
+        }
+
+        setNewsItems(payload.data);
+        setNewsUpdatedAt(payload.meta.updatedAt);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+
+        setNewsItems([]);
+        setNewsError("官方新闻暂时无法同步 / Official news sync unavailable");
+      })
+      .finally(() => {
+        if (active) {
+          setNewsLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [activePanel]);
+
+  useEffect(() => {
     if (!mapExpanded) {
       return;
     }
@@ -1925,6 +2174,23 @@ export function VerseIndexApp() {
   const selectedRecord = useMemo(
     () => records.find((record) => record.id === selectedId) ?? records[0],
     [records, selectedId]
+  );
+  const eventCountdowns = useMemo(
+    () =>
+      starCitizenEvents
+        .map((event) => getEventCountdown(event, clockNow))
+        .sort((left, right) => Number(right.ongoing) - Number(left.ongoing) || left.milliseconds - right.milliseconds),
+    [clockNow]
+  );
+  const categorizedNews = useMemo(
+    () =>
+      newsItems.reduce<Record<string, OfficialNewsItem[]>>((grouped, item) => {
+        const key = item.categoryZh || "官方公告";
+        grouped[key] = grouped[key] ?? [];
+        grouped[key].push(item);
+        return grouped;
+      }, {}),
+    [newsItems]
   );
 
   const fallbackShipOptions = useMemo(
@@ -2493,6 +2759,111 @@ export function VerseIndexApp() {
 
         {activePanel === "starmap" ? (
           <StarMapPanel selectedMapId={selectedMapId} onSelectMap={setSelectedMapId} />
+        ) : null}
+
+        {activePanel === "news" ? (
+          <section className="news-panel">
+            <div className="heading-row news-heading">
+              <div>
+                <p className="eyebrow">NEWS / OFFICIAL RSI</p>
+                <h1>新闻 / News</h1>
+              </div>
+              <div className="news-time">
+                <span>北京时间 / Beijing Time</span>
+                <strong>
+                  {clockNow.toLocaleString("zh-CN", {
+                    timeZone: "Asia/Shanghai",
+                    hour12: false
+                  })}
+                </strong>
+              </div>
+            </div>
+
+            <section className="countdown-section" aria-label="Star Citizen event countdown">
+              <div className="section-title-row">
+                <div>
+                  <p className="eyebrow">EVENT COUNTDOWN</p>
+                  <h2>节日倒计时 / Event Countdown</h2>
+                </div>
+                <span>北京时间同步 / UTC+8</span>
+              </div>
+              <div className="event-countdown-grid">
+                {eventCountdowns.map((event) => (
+                  <article className={`event-card ${event.tone}`} key={event.id}>
+                    <span className="event-mark">{event.mark}</span>
+                    <div>
+                      <h3>
+                        {event.nameZh} <small>{event.nameEn}</small>
+                      </h3>
+                      <strong>{event.ongoing ? "正在进行中 / Live" : event.countdown}</strong>
+                      {event.ongoing ? <em>结束倒计时 / Ends: {event.countdown}</em> : null}
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <p className="news-note">日期按常见活动窗口维护；官方调整时以 RSI 公告为准 / Dates follow common event windows; RSI posts are final.</p>
+            </section>
+
+            <section className="official-source-section" aria-label="Official news sources">
+              <div className="section-title-row">
+                <div>
+                  <p className="eyebrow">OFFICIAL SOURCES</p>
+                  <h2>官方来源 / Sources</h2>
+                </div>
+                <span>{newsLoading ? "同步中 / Syncing" : newsUpdatedAt ? `Updated ${new Date(newsUpdatedAt).toLocaleTimeString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}` : "Ready"}</span>
+              </div>
+              <div className="official-source-grid">
+                {officialNewsSources.map((source) => (
+                  <a href={source.url} key={source.url} rel="noreferrer" target="_blank">
+                    <strong>
+                      {source.titleZh} <small>{source.titleEn}</small>
+                    </strong>
+                    <span>{source.noteZh}</span>
+                    <em>{source.noteEn}</em>
+                  </a>
+                ))}
+              </div>
+            </section>
+
+            <section className="official-news-section" aria-label="Official news feed">
+              <div className="section-title-row">
+                <div>
+                  <p className="eyebrow">NEWS FEED</p>
+                  <h2>官方新闻整合 / Feed</h2>
+                </div>
+                <span>Patch Notes + Comm-Link</span>
+              </div>
+              {newsError ? <p className="news-error">{newsError}</p> : null}
+              <div className="news-category-grid">
+                {Object.entries(categorizedNews).length ? (
+                  Object.entries(categorizedNews).map(([category, items]) => (
+                    <article className="news-category-card" key={category}>
+                      <header>
+                        <h3>{category}</h3>
+                        <span>{items.length}</span>
+                      </header>
+                      {items.slice(0, 5).map((item) => (
+                        <a className="news-link-card" href={item.url} key={item.id} rel="noreferrer" target="_blank">
+                          <strong>{item.titleZh}</strong>
+                          <span>{item.title}</span>
+                          <p>{item.summaryZh}</p>
+                          <em>
+                            {item.sourceName}
+                            {item.posted ? ` / ${item.posted}` : ""}
+                          </em>
+                        </a>
+                      ))}
+                    </article>
+                  ))
+                ) : (
+                  <article className="empty-state">
+                    <h2>{newsLoading ? "同步中 / Syncing" : "暂无新闻 / No feed"}</h2>
+                    <p>官方入口仍可直接打开 / Official source links are available above.</p>
+                  </article>
+                )}
+              </div>
+            </section>
+          </section>
         ) : null}
 
         {activePanel === "network" ? (
