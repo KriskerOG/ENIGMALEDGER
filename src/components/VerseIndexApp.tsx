@@ -1984,6 +1984,7 @@ function StatusLine({ loading, source, error }: { loading: boolean; source: stri
 }
 
 export function VerseIndexApp() {
+  const [showIntro, setShowIntro] = useState(true);
   const [activePanel, setActivePanel] = useState<ActivePanel>("network");
   const [selectedMapId, setSelectedMapId] = useState<VerseGuideMap["id"]>("stanton");
   const [mapExpanded, setMapExpanded] = useState(false);
@@ -2032,6 +2033,12 @@ export function VerseIndexApp() {
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
 
     return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setShowIntro(false), 5200);
+
+    return () => window.clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -2421,8 +2428,36 @@ export function VerseIndexApp() {
     setCargoScu(getShipCargoScu(nextShip));
   }
 
+  function renderSourceCard(source: DataSourceCatalogItem) {
+    return (
+      <article key={source.id}>
+        <header>
+          <h2>{source.name}</h2>
+          <span>{sourceStatusLabels[source.status] ?? source.status}</span>
+        </header>
+        <div className="source-purpose-list">
+          {source.purpose.map((purpose) => (
+            <span key={purpose}>{sourcePurposeLabels[purpose] ? `${sourcePurposeLabels[purpose]} / ${purpose}` : purpose}</span>
+          ))}
+        </div>
+        <footer>
+          <span>{source.requiresToken ? "需要密钥 / Token required" : "无需密钥 / No token"}</span>
+          <span>{sourceCadenceLabels[source.recommendedCadence] ?? source.recommendedCadence}</span>
+        </footer>
+      </article>
+    );
+  }
+
   return (
     <div className="app-shell">
+      {showIntro ? (
+        <section className="intro-overlay" aria-label="Welcome to ENIGMA">
+          <img src="/enigma-intro.gif" alt="" />
+          <button type="button" onClick={() => setShowIntro(false)}>
+            Enter
+          </button>
+        </section>
+      ) : null}
       <header className="topbar">
         <div className="brand" aria-label="ENIGMA Verse Index">
           <span className="brand-mark">E</span>
@@ -3068,9 +3103,8 @@ export function VerseIndexApp() {
               </div>
             </div>
 
-            <div className="charter-grid">
+            <div className="charter-grid" hidden>
               <article>
-                <span>I</span>
                 <h2>
                   契约大于一切
                   <small>Honor The Contract</small>
@@ -3079,7 +3113,6 @@ export function VerseIndexApp() {
                 <p>A deal accepted through the network must be fulfilled under the confirmed terms.</p>
               </article>
               <article>
-                <span>II</span>
                 <h2>
                   保护贸易网络
                   <small>Protect The Network</small>
@@ -3088,7 +3121,6 @@ export function VerseIndexApp() {
                 <p>Neutral trade requires the ability to defend ships, cargo, routes, and trusted partners.</p>
               </article>
               <article>
-                <span>III</span>
                 <h2>
                   永不背叛信誉
                   <small>Never Betray The Ledger</small>
@@ -3126,8 +3158,11 @@ export function VerseIndexApp() {
               </div>
             </section>
 
-            <div className="source-grid" aria-label="Data sources">
-              {sourceCatalog.map((source) => (
+            <h2 className="source-section-title">
+              官方数据来源 <small>Official Sources</small>
+            </h2>
+            <div className="source-grid" aria-label="Official data sources">
+              {sourceCatalog.filter((source) => source.id === "rsi-official").map((source) => (
                 <article key={source.id}>
                   <header>
                     <h2>{source.name}</h2>
@@ -3144,6 +3179,12 @@ export function VerseIndexApp() {
                   </footer>
                 </article>
               ))}
+            </div>
+            <h2 className="source-section-title">
+              社区数据来源 <small>Community Data Sources</small>
+            </h2>
+            <div className="source-grid" aria-label="Community data sources">
+              {sourceCatalog.filter((source) => source.id !== "rsi-official").map(renderSourceCard)}
             </div>
           </section>
         ) : null}

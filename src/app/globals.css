@@ -60,6 +60,73 @@ button {
   grid-template-rows: auto 1fr auto;
 }
 
+.intro-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #02080c;
+  animation: introFadeOut 0.7s ease 4.7s forwards;
+}
+
+.intro-overlay::before,
+.intro-overlay::after {
+  content: "";
+  position: absolute;
+  inset: 24px;
+  pointer-events: none;
+  border: 1px solid rgba(120, 207, 235, 0.18);
+}
+
+.intro-overlay::after {
+  inset: 46px;
+  border-color: rgba(120, 207, 235, 0.09);
+}
+
+.intro-overlay img {
+  width: min(100vw, 100vh);
+  height: min(100vw, 100vh);
+  object-fit: contain;
+  filter: drop-shadow(0 0 34px rgba(133, 219, 255, 0.28));
+  animation: introSeal 5.2s ease forwards;
+}
+
+.intro-overlay button {
+  position: absolute;
+  right: 28px;
+  bottom: 28px;
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid rgba(128, 207, 231, 0.45);
+  background: rgba(2, 8, 12, 0.58);
+  color: #c9f5ff;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+@keyframes introSeal {
+  0% {
+    opacity: 0;
+    transform: scale(1.08);
+  }
+  16% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes introFadeOut {
+  to {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 .topbar {
   height: 72px;
   display: grid;
@@ -2576,6 +2643,25 @@ button:focus-visible {
   margin-top: 22px;
 }
 
+.source-section-title {
+  margin: 28px 0 0;
+  color: var(--gold);
+  font-size: 18px;
+  text-transform: uppercase;
+}
+
+.source-section-title small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 13px;
+  text-transform: none;
+}
+
+.source-grid + .source-section-title {
+  margin-top: 34px;
+}
+
 .source-grid article {
   padding: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -2626,6 +2712,10 @@ button:focus-visible {
   padding: 22px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.035);
+}
+
+.charter-grid[hidden] {
+  display: none;
 }
 
 .charter-grid article span {
