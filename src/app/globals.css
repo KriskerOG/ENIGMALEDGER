@@ -2245,11 +2245,22 @@ button:focus-visible {
   align-content: start;
 }
 
-.network-panel > p:not(.eyebrow) {
-  max-width: 760px;
-  color: var(--muted);
-  font-size: 18px;
-  line-height: 1.7;
+.network-panel h1,
+.network-panel .network-title-en {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.network-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 32%);
+  gap: clamp(22px, 5vw, 80px);
+  align-items: center;
+  margin-bottom: 28px;
+}
+
+.network-hero-copy {
+  min-width: 0;
 }
 
 .network-panel .network-title-en {
@@ -2261,7 +2272,6 @@ button:focus-visible {
 }
 
 .network-copy {
-  max-width: 860px;
   margin-top: 18px;
 }
 
@@ -2270,6 +2280,30 @@ button:focus-visible {
   color: var(--muted);
   font-size: 18px;
   line-height: 1.7;
+}
+
+.network-seal-watermark {
+  width: min(100%, 520px);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  justify-self: end;
+  opacity: 0.9;
+  filter: brightness(0) invert(1) drop-shadow(0 0 28px rgba(207, 238, 255, 0.2));
+}
+
+.network-seal-watermark img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+@media (max-width: 1280px) {
+  .network-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(220px, 30%);
+    gap: 24px;
+  }
 }
 
 .kook-invite {
@@ -2852,6 +2886,16 @@ button:focus-visible {
   .pilot-panel,
   .starmap-sidebar {
     position: static;
+  }
+
+  .network-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .network-seal-watermark {
+    width: min(420px, 72vw);
+    justify-self: center;
+    opacity: 0.72;
   }
 }
 

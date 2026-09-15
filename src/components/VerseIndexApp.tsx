@@ -3075,31 +3075,39 @@ export function VerseIndexApp() {
 
         {activePanel === "network" ? (
           <section className="network-panel">
-            <p className="eyebrow">ENIGMA ORGANIZATION / ENIGMA 组织</p>
-            <h1>信誉 - 贸易 - 中立 - 自由</h1>
-            <p className="network-title-en">TRUST - TRADE - NEUTRALITY - FREEDOM</p>
-            <div className="network-copy">
-              <p>ENIGMA 让独立飞行员、商人、矿工、运输者、护航与探索者，通过契约、信誉和中立贸易建立合作。</p>
-              <p>
-                ENIGMA helps independent pilots, traders, miners, haulers, escorts, and explorers cooperate through
-                contracts, reputation, and neutral commerce.
-              </p>
-              <div className="kook-invite">
-                <span>欢迎开黑玩家和感兴趣的玩家加入 ENIGMA 商会的 KOOK 频道</span>
-                <a className="kook-link" href="https://kook.vip/HttxHA" rel="noreferrer" target="_blank">
-                  https://kook.vip/HttxHA
-                </a>
+            <div className="network-hero">
+              <div className="network-hero-copy">
+                <p className="eyebrow">ENIGMA ORGANIZATION / ENIGMA 组织</p>
+                <h1>信誉 - 贸易 - 中立 - 自由</h1>
+                <p className="network-title-en">TRUST - TRADE - NEUTRALITY - FREEDOM</p>
+                <div className="network-copy">
+                  <p>ENIGMA 让独立飞行员、商人、矿工、运输者、护航与探索者，通过契约、信誉和中立贸易建立合作。</p>
+                  <p>
+                    ENIGMA helps independent pilots, traders, miners, haulers, escorts, and explorers cooperate through
+                    contracts, reputation, and neutral commerce.
+                  </p>
+                  <div className="kook-invite">
+                    <span>欢迎开黑玩家和感兴趣的玩家加入 ENIGMA 商会的 KOOK 频道</span>
+                    <a className="kook-link" href="https://kook.vip/HttxHA" rel="noreferrer" target="_blank">
+                      https://kook.vip/HttxHA
+                    </a>
+                  </div>
+                  <div className="kook-invite">
+                    <span>ENIGMA商会申请链接，不要求设置主组织，我们是商会而非舰队</span>
+                    <a
+                      className="kook-link"
+                      href="https://robertsspaceindustries.com/en/orgs/ENIGMAORG"
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      https://robertsspaceindustries.com/en/orgs/ENIGMAORG
+                    </a>
+                  </div>
+                </div>
               </div>
-              <div className="kook-invite">
-                <span>ENIGMA商会申请链接，不要求设置主组织，我们是商会而非舰队</span>
-                <a
-                  className="kook-link"
-                  href="https://robertsspaceindustries.com/en/orgs/ENIGMAORG"
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  https://robertsspaceindustries.com/en/orgs/ENIGMAORG
-                </a>
+
+              <div className="network-seal-watermark" aria-hidden="true">
+                <img src="/enigma-seal-white.png" alt="" />
               </div>
             </div>
 
