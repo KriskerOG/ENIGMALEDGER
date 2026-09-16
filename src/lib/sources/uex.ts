@@ -1081,7 +1081,25 @@ async function fetchUexCommodities(refresh = false): Promise<UexCommodity[]> {
 }
 
 function resolveUexCommodity(commodities: UexCommodity[], query: string): UexCommodity | undefined {
-  const candidates = [query, resolveTradeQuery(query, "commodity"), ...getTradeQueryCandidates(query, "commodity", 8)]
+  const normalizedQuery = normalizeTradeAliasText(query);
+  const exactLocalizedName = Object.entries(uexCommodityNames).find(
+    ([english, chinese]) => normalizeTradeAliasText(english) === normalizedQuery || normalizeTradeAliasText(chinese) === normalizedQuery
+  )?.[0];
+  const exactCandidates = [query, exactLocalizedName]
+    .map((candidate) => normalizeTradeAliasText(candidate))
+    .filter(Boolean);
+
+  const exactMatch = commodities.find((commodity) => {
+    const values = [commodity.name, commodity.code, commodity.slug].map((value) => normalizeTradeAliasText(value)).filter(Boolean);
+
+    return exactCandidates.some((candidate) => values.some((value) => value === candidate));
+  });
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const candidates = [query, exactLocalizedName, resolveTradeQuery(query, "commodity"), ...getTradeQueryCandidates(query, "commodity", 8)]
     .map((candidate) => normalizeTradeAliasText(candidate))
     .filter(Boolean);
 

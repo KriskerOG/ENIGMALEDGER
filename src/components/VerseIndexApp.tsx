@@ -2844,26 +2844,6 @@ export function VerseIndexApp() {
                   <p className="eyebrow">COMMERCE</p>
                   <h1>{tradeTool === "routes" ? "航线收益" : "卖货导航"}</h1>
                 </div>
-                <div className="planner-actions">
-                  <button
-                    className="primary-action"
-                    type="button"
-                    onClick={() =>
-                      tradeTool === "routes" ? setRouteSearchNonce((value) => value + 1) : setSellSearchNonce((value) => value + 1)
-                    }
-                  >
-                    {tradeTool === "routes" ? "搜索航线" : "搜索卖点"}
-                  </button>
-                  <button
-                    className="ghost-button sync-button"
-                    type="button"
-                    onClick={() =>
-                      tradeTool === "routes" ? setRouteRefreshNonce((value) => value + 1) : setSellRefreshNonce((value) => value + 1)
-                    }
-                  >
-                    同步 UEX
-                  </button>
-                </div>
               </div>
 
               <div className="trade-subtabs" aria-label="Trade tools">
@@ -2872,6 +2852,27 @@ export function VerseIndexApp() {
                 </button>
                 <button className={tradeTool === "sell" ? "active" : ""} type="button" onClick={() => setTradeTool("sell")}>
                   卖货导航
+                </button>
+              </div>
+
+              <div className="trade-command-row">
+                <button
+                  className="primary-action"
+                  type="button"
+                  onClick={() =>
+                    tradeTool === "routes" ? setRouteSearchNonce((value) => value + 1) : setSellSearchNonce((value) => value + 1)
+                  }
+                >
+                  {tradeTool === "routes" ? "搜索航线" : "搜索卖点"}
+                </button>
+                <button
+                  className="ghost-button sync-button"
+                  type="button"
+                  onClick={() =>
+                    tradeTool === "routes" ? setRouteRefreshNonce((value) => value + 1) : setSellRefreshNonce((value) => value + 1)
+                  }
+                >
+                  同步 UEX
                 </button>
               </div>
 

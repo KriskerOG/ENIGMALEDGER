@@ -336,6 +336,19 @@ h2 {
   background: rgba(214, 168, 79, 0.16);
 }
 
+.trade-command-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.trade-command-row .primary-action,
+.trade-command-row .ghost-button {
+  min-height: 36px;
+}
+
 .primary-action {
   min-height: 42px;
   border: 1px solid rgba(60, 200, 180, 0.52);
