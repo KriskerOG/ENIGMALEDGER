@@ -120,13 +120,21 @@ interface UexCommodityPrice {
   id?: number;
   id_commodity?: number | string | null;
   id_terminal?: number | string | null;
+  price_buy?: number | string | null;
+  price_buy_avg?: number | string | null;
+  price_buy_min?: number | string | null;
+  price_buy_max?: number | string | null;
   price_sell?: number | string | null;
   price_sell_avg?: number | string | null;
   price_sell_min?: number | string | null;
   price_sell_max?: number | string | null;
+  scu_buy?: number | string | null;
+  scu_buy_avg?: number | string | null;
+  scu_buy_max?: number | string | null;
   scu_sell?: number | string | null;
   scu_sell_avg?: number | string | null;
   scu_sell_max?: number | string | null;
+  status_buy?: number | boolean | null;
   status_sell?: number | boolean | null;
   container_sizes?: string | null;
   game_version?: string | null;
@@ -150,6 +158,7 @@ interface UexCommodityPrice {
 
 export interface UexSellOption {
   id: string;
+  mode: "buy" | "sell";
   commodity: string;
   commodityZh?: string;
   terminal: string;
@@ -594,6 +603,10 @@ function asNumber(value: number | string | null | undefined): number {
 
 function isEnabled(value: number | boolean | null | undefined): boolean {
   return value === undefined || value === null || value === true || value === 1;
+}
+
+function isUexPriceActive(value: number | boolean | null | undefined): boolean {
+  return value === undefined || value === null || value === true || (typeof value === "number" && value > 0);
 }
 
 function asArray<T>(value: T | T[] | undefined): T[] {
@@ -1068,8 +1081,7 @@ async function fetchUexCommodities(refresh = false): Promise<UexCommodity[]> {
     (commodity) =>
       Boolean(commodity.name) &&
       isEnabled(commodity.is_available) &&
-      isEnabled(commodity.is_visible) &&
-      isEnabled(commodity.is_sellable)
+      isEnabled(commodity.is_visible)
   );
 
   uexCommodityCache = {
@@ -1110,25 +1122,38 @@ function resolveUexCommodity(commodities: UexCommodity[], query: string): UexCom
   });
 }
 
-function getSellDemandScu(price: UexCommodityPrice): number | undefined {
-  const demand = Math.max(asNumber(price.scu_sell), asNumber(price.scu_sell_avg), asNumber(price.scu_sell_max));
+function getUexQuantityScu(price: UexCommodityPrice, mode: "buy" | "sell"): number | undefined {
+  const quantity =
+    mode === "sell"
+      ? Math.max(asNumber(price.scu_buy), asNumber(price.scu_buy_avg), asNumber(price.scu_buy_max))
+      : Math.max(asNumber(price.scu_sell), asNumber(price.scu_sell_avg), asNumber(price.scu_sell_max));
 
-  return demand > 0 ? Math.floor(demand) : undefined;
+  return quantity > 0 ? Math.floor(quantity) : undefined;
 }
 
-function mapUexPriceToSellOption(price: UexCommodityPrice, cargoScu: number, buyPricePerScu: number | undefined): UexSellOption | undefined {
-  const priceSell = asNumber(price.price_sell) || asNumber(price.price_sell_avg) || asNumber(price.price_sell_max);
+function mapUexPriceToSellOption(
+  price: UexCommodityPrice,
+  cargoScu: number,
+  buyPricePerScu: number | undefined,
+  mode: "buy" | "sell"
+): UexSellOption | undefined {
+  const pricePerScu =
+    mode === "sell"
+      ? asNumber(price.price_buy) || asNumber(price.price_buy_avg) || asNumber(price.price_buy_max)
+      : asNumber(price.price_sell) || asNumber(price.price_sell_avg) || asNumber(price.price_sell_max);
 
-  if (!price.commodity_name || !price.terminal_name || priceSell <= 0 || price.terminal_is_player_owned) {
+  if (!price.commodity_name || !price.terminal_name || pricePerScu <= 0 || price.terminal_is_player_owned) {
     return undefined;
   }
 
-  if (price.status_sell !== undefined && price.status_sell !== null && !isEnabled(price.status_sell)) {
+  const status = mode === "sell" ? price.status_buy : price.status_sell;
+
+  if (!isUexPriceActive(status)) {
     return undefined;
   }
 
-  const demandScu = getSellDemandScu(price);
-  const acceptedScu = Math.max(0, Math.min(Math.floor(cargoScu), demandScu ?? Math.floor(cargoScu)));
+  const quantityScu = getUexQuantityScu(price, mode);
+  const acceptedScu = Math.max(0, Math.min(Math.floor(cargoScu), quantityScu ?? Math.floor(cargoScu)));
 
   if (acceptedScu <= 0) {
     return undefined;
@@ -1140,10 +1165,11 @@ function mapUexPriceToSellOption(price: UexCommodityPrice, cargoScu: number, buy
     price.orbit_name ?? price.outpost_name ?? price.poi_name
   );
   const sourceUpdatedAt = toIsoDateFromUnixSeconds(price.date_modified);
-  const revenue = acceptedScu * priceSell;
+  const revenue = acceptedScu * pricePerScu;
 
   return {
-    id: `uex-sell-${price.id ?? price.id_terminal ?? price.terminal_slug}`,
+    id: `uex-${mode}-${price.id ?? price.id_terminal ?? price.terminal_slug}`,
+    mode,
     commodity: price.commodity_name,
     commodityZh: localizeCompositeName(price.commodity_name, "commodity"),
     terminal: price.terminal_name,
@@ -1151,10 +1177,10 @@ function mapUexPriceToSellOption(price: UexCommodityPrice, cargoScu: number, buy
     terminalSlug: price.terminal_slug ?? undefined,
     location: location || undefined,
     locationZh: localizeLocationTrail(location),
-    priceSell,
+    priceSell: pricePerScu,
     cargoScu,
     acceptedScu,
-    demandScu,
+    demandScu: quantityScu,
     revenue,
     profit: revenue - acceptedScu * Math.max(0, buyPricePerScu ?? 0),
     containerSizes: parseContainerSizes(price.container_sizes),
@@ -1175,11 +1201,13 @@ export async function fetchUexSellOptions(input: {
   commodity: string;
   cargoScu: number;
   buyPricePerScu?: number;
+  mode?: "buy" | "sell";
   limit?: number;
   refresh?: boolean;
 }): Promise<{ commodity?: UexCommodity; options: UexSellOption[] }> {
   const cargoScu = Math.max(1, Math.floor(input.cargoScu));
   const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+  const mode = input.mode ?? "sell";
   const commodities = await fetchUexCommodities(input.refresh);
   const commodity = resolveUexCommodity(commodities, input.commodity.trim());
 
@@ -1192,9 +1220,11 @@ export async function fetchUexSellOptions(input: {
     : { commodity_name: commodity.name ?? input.commodity };
   const response = await fetchUexResource<UexCommodityPrice[]>("commodities_prices", commodityParams);
   const options = asArray(response.data)
-    .map((price) => mapUexPriceToSellOption(price, cargoScu, input.buyPricePerScu))
+    .map((price) => mapUexPriceToSellOption(price, cargoScu, input.buyPricePerScu, mode))
     .filter((option): option is UexSellOption => Boolean(option))
-    .sort((left, right) => right.priceSell - left.priceSell || right.revenue - left.revenue)
+    .sort((left, right) =>
+      mode === "buy" ? left.priceSell - right.priceSell || right.acceptedScu - left.acceptedScu : right.priceSell - left.priceSell || right.revenue - left.revenue
+    )
     .slice(0, limit);
 
   return {

@@ -464,6 +464,7 @@ interface TradeLocationApiResponse {
 
 interface SellNavigationOption {
   id: string;
+  mode: "buy" | "sell";
   commodity: string;
   commodityZh?: string;
   terminal: string;
@@ -2068,9 +2069,10 @@ export function VerseIndexApp() {
   const [sourceCatalog, setSourceCatalog] = useState<DataSourceCatalogItem[]>([]);
   const [routePlanMode, setRoutePlanMode] = useState<"direct" | "loop">("direct");
   const [tradeTool, setTradeTool] = useState<"routes" | "sell">("routes");
+  const [sellMode, setSellMode] = useState<"buy" | "sell">("sell");
   const [sellCommodity, setSellCommodity] = useState("Beryl");
   const [sellCargoScu, setSellCargoScu] = useState(100);
-  const [sellBuyPricePerScu, setSellBuyPricePerScu] = useState(0);
+  const sellBuyPricePerScu = 0;
   const [sellSearchNonce, setSellSearchNonce] = useState(0);
   const [sellRefreshNonce, setSellRefreshNonce] = useState(0);
   const sellRefreshConsumedRef = useRef(0);
@@ -2320,6 +2322,7 @@ export function VerseIndexApp() {
     const refreshNow = sellRefreshNonce !== sellRefreshConsumedRef.current;
     const params = new URLSearchParams({
       commodity: sellCommodity,
+      mode: sellMode,
       cargoScu: String(sellCargoScu || 0),
       buyPricePerScu: String(sellBuyPricePerScu || 0),
       limit: "50"
@@ -2367,7 +2370,7 @@ export function VerseIndexApp() {
     return () => {
       active = false;
     };
-  }, [sellRefreshNonce, sellSearchNonce]);
+  }, [sellRefreshNonce, sellSearchNonce, sellMode]);
 
   useEffect(() => {
     let active = true;
@@ -2842,7 +2845,7 @@ export function VerseIndexApp() {
               <div className="planner-toolbar">
                 <div>
                   <p className="eyebrow">COMMERCE</p>
-                  <h1>{tradeTool === "routes" ? "航线收益" : "卖货导航"}</h1>
+                  <h1>{tradeTool === "routes" ? "航线收益" : "货物导航"}</h1>
                 </div>
               </div>
 
@@ -2851,7 +2854,7 @@ export function VerseIndexApp() {
                   航线收益
                 </button>
                 <button className={tradeTool === "sell" ? "active" : ""} type="button" onClick={() => setTradeTool("sell")}>
-                  卖货导航
+                  货物导航
                 </button>
               </div>
 
@@ -2863,7 +2866,7 @@ export function VerseIndexApp() {
                     tradeTool === "routes" ? setRouteSearchNonce((value) => value + 1) : setSellSearchNonce((value) => value + 1)
                   }
                 >
-                  {tradeTool === "routes" ? "搜索航线" : "搜索卖点"}
+                    {tradeTool === "routes" ? "搜索航线" : sellMode === "sell" ? "搜索卖点" : "搜索买点"}
                 </button>
                 <button
                   className="ghost-button sync-button"
@@ -3022,6 +3025,17 @@ export function VerseIndexApp() {
                 </>
               ) : (
                 <>
+                  <div className="mode-control trade-flow-control">
+                    <span>Mode</span>
+                    <div className="mode-toggle">
+                      <button className={sellMode === "buy" ? "active" : ""} type="button" onClick={() => setSellMode("buy")}>
+                        找买点
+                      </button>
+                      <button className={sellMode === "sell" ? "active" : ""} type="button" onClick={() => setSellMode("sell")}>
+                        找卖点
+                      </button>
+                    </div>
+                  </div>
                   <div className="control-grid trade-controls planner-grid sell-grid">
                     <label className="wide-control">
                       <span>Commodity</span>
@@ -3042,36 +3056,27 @@ export function VerseIndexApp() {
                         onChange={(event) => setSellCargoScu(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000))}
                       />
                     </label>
-                    <label>
-                      <span>Cost / SCU</span>
-                      <input
-                        min={0}
-                        type="number"
-                        value={getNumberInputValue(sellBuyPricePerScu)}
-                        onChange={(event) => setSellBuyPricePerScu(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000000))}
-                      />
-                    </label>
                   </div>
 
                   <div className="planner-source-line">
-                    <span>UEX static prices</span>
-                    <span>{sellOptions.length} sell points</span>
+                    <span>{sellMode === "sell" ? "UEX Demand / NPC Buy" : "UEX Supply / NPC Sell"}</span>
+                    <span>{sellOptions.length} points</span>
                     <span>{formatNumber(sellCargoScu)} SCU cargo</span>
                   </div>
 
                   <StatusLine loading={sellLoading} source={sellSource} error={sellError} />
                   <div className="inventory-risk-note">
-                    <strong>卖货导航说明</strong>
-                    <span>卖矿默认成本为 0，不分品质。</span>
-                    <span>按 UEX 静态价格估算 NPC 买点。</span>
-                    <span>需求未知时，按输入货量估算。</span>
-                    <em>Mining cost can stay 0. Sell navigation uses UEX static prices.</em>
+                    <strong>货物导航说明</strong>
+                    <span>找买点：NPC 卖给玩家。</span>
+                    <span>找卖点：NPC 收购玩家货物。</span>
+                    <span>按 UEX 静态价格估算。</span>
+                    <em>Buy point means NPC sells. Sell point means NPC buys.</em>
                   </div>
 
                   <div className="metric-strip planner-metrics">
                     <div>
                       <strong>{sellOptions[0] ? formatNumber(sellOptions[0].revenue) : 0}</strong>
-                      <span>Best Revenue UEC</span>
+                      <span>{sellMode === "sell" ? "Best Revenue UEC" : "Best Cost UEC"}</span>
                     </div>
                     <div>
                       <strong>{sellOptions[0] ? formatNumber(sellOptions[0].priceSell) : 0}</strong>
@@ -3079,11 +3084,11 @@ export function VerseIndexApp() {
                     </div>
                     <div>
                       <strong>{sellOptions.length}</strong>
-                      <span>Sell Points</span>
+                      <span>Points</span>
                     </div>
                     <div>
                       <strong>{sellOptions[0]?.demandScu ? formatNumber(sellOptions[0].demandScu) : "未知"}</strong>
-                      <span>Demand</span>
+                      <span>{sellMode === "sell" ? "Demand" : "Supply"}</span>
                     </div>
                   </div>
                 </>
@@ -3179,20 +3184,20 @@ export function VerseIndexApp() {
                   </div>
                   <div className="route-detail-grid">
                     <div>
-                      <span>Fixed Sell</span>
+                      <span>{option.mode === "sell" ? "NPC Buy" : "NPC Sell"}</span>
                       <strong>{formatNumber(option.priceSell)} UEC/SCU</strong>
                     </div>
                     <div>
-                      <span>Accepted</span>
+                      <span>{option.mode === "sell" ? "Accepted" : "Available"}</span>
                       <strong>{formatNumber(option.acceptedScu)} SCU</strong>
                     </div>
                     <div>
-                      <span>Demand</span>
+                      <span>{option.mode === "sell" ? "Demand" : "Supply"}</span>
                       <strong>{option.demandScu ? `${formatNumber(option.demandScu)} SCU` : "未知"}</strong>
                     </div>
                     <div>
-                      <span>Net</span>
-                      <strong>{typeof option.profit === "number" ? `${formatNumber(option.profit)} UEC` : "Cost 0"}</strong>
+                      <span>{option.mode === "sell" ? "Revenue" : "Cost"}</span>
+                      <strong>{formatNumber(option.revenue)} UEC</strong>
                     </div>
                   </div>
                   <div className="source-row">

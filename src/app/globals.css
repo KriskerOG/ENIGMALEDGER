@@ -381,6 +381,10 @@ h2 {
   grid-template-columns: minmax(260px, 1.4fr) minmax(130px, 0.7fr) minmax(150px, 0.8fr);
 }
 
+.trade-flow-control {
+  margin-top: 14px;
+}
+
 .planner-row,
 .mode-control {
   display: grid;

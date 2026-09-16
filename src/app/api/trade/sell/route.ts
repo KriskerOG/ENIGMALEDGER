@@ -8,6 +8,7 @@ export const runtime = "nodejs";
 
 const SellQuerySchema = z.object({
   commodity: z.string().trim().min(1).max(120),
+  mode: z.enum(["buy", "sell"]).optional().default("sell"),
   cargoScu: z.coerce.number().int().min(1).max(100000).default(100),
   buyPricePerScu: z.coerce.number().min(0).max(100000000).optional().default(0),
   limit: z.coerce.number().int().min(1).max(100).optional().default(50),
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest) {
   try {
     const result = await fetchUexSellOptions({
       commodity: parsed.data.commodity,
+      mode: parsed.data.mode,
       cargoScu: parsed.data.cargoScu,
       buyPricePerScu: parsed.data.buyPricePerScu || undefined,
       limit: parsed.data.limit,
