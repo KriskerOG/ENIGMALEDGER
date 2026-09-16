@@ -1581,7 +1581,7 @@ function getInventoryStatus(route: CalculatedTradeRoute, cargoScu: number): { la
 
   if (availableScu === undefined) {
     return {
-      label: "UEX低库存风险：中",
+      label: "ENIGMA低库存风险：中",
       detail: `${updatedAt} / UEX 未公开库存量`,
       tone: "medium"
     };
@@ -1589,7 +1589,7 @@ function getInventoryStatus(route: CalculatedTradeRoute, cargoScu: number): { la
 
   if (availableScu < cargoScu || availableScu < route.purchasableScu * 1.1) {
     return {
-      label: "UEX低库存风险：高",
+      label: "ENIGMA低库存风险：高",
       detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
       tone: "high"
     };
@@ -1597,14 +1597,14 @@ function getInventoryStatus(route: CalculatedTradeRoute, cargoScu: number): { la
 
   if (route.source.freshness === "stale" || availableScu < cargoScu * 2) {
     return {
-      label: "UEX低库存风险：中",
+      label: "ENIGMA低库存风险：中",
       detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
       tone: "medium"
     };
   }
 
   return {
-    label: "UEX低库存风险：低",
+    label: "ENIGMA低库存风险：低",
     detail: `${formatNumber(availableScu)} SCU 可达 / ${updatedAt}`,
     tone: "low"
   };
@@ -2086,6 +2086,7 @@ export function VerseIndexApp() {
   const [newsError, setNewsError] = useState<string>();
   const [newsUpdatedAt, setNewsUpdatedAt] = useState<string>();
   const [newsTranslationStatus, setNewsTranslationStatus] = useState<string>("Translation off");
+  const [charterOpen, setCharterOpen] = useState(false);
 
   useEffect(() => {
     const timer = window.setInterval(() => setClockNow(new Date()), 1000);
@@ -2839,25 +2840,24 @@ export function VerseIndexApp() {
           </section>
         ) : null}
 
-        {activePanel === "trade" ? (
-          <section className="trade-grid">
-            <section className="index-panel">
-              <div className="planner-toolbar">
-                <div>
-                  <p className="eyebrow">COMMERCE</p>
-                  <h1>{tradeTool === "routes" ? "航线收益" : "货物导航"}</h1>
-                </div>
+        {activePanel === "trade" && (
+          <section className="trade-page">
+            <section className="trade-page-header">
+              <div>
+                <p className="eyebrow">COMMERCE</p>
+                <h1>贸易控制台</h1>
+                <span>{tradeTool === "routes" ? "Route Profit" : "Cargo Navigation"}</span>
               </div>
-
               <div className="trade-subtabs" aria-label="Trade tools">
                 <button className={tradeTool === "routes" ? "active" : ""} type="button" onClick={() => setTradeTool("routes")}>
                   航线收益
+                  <small>Routes</small>
                 </button>
                 <button className={tradeTool === "sell" ? "active" : ""} type="button" onClick={() => setTradeTool("sell")}>
                   货物导航
+                  <small>Cargo</small>
                 </button>
               </div>
-
               <div className="trade-command-row">
                 <button
                   className="primary-action"
@@ -2866,7 +2866,7 @@ export function VerseIndexApp() {
                     tradeTool === "routes" ? setRouteSearchNonce((value) => value + 1) : setSellSearchNonce((value) => value + 1)
                   }
                 >
-                    {tradeTool === "routes" ? "搜索航线" : sellMode === "sell" ? "搜索卖点" : "搜索买点"}
+                  {tradeTool === "routes" ? "搜索航线" : sellMode === "sell" ? "搜索卖点" : "搜索买点"}
                 </button>
                 <button
                   className="ghost-button sync-button"
@@ -2877,6 +2877,16 @@ export function VerseIndexApp() {
                 >
                   同步 UEX
                 </button>
+              </div>
+            </section>
+
+            <section className="trade-grid">
+            <section className="index-panel">
+              <div className="planner-toolbar">
+                <div>
+                  <p className="eyebrow">{tradeTool === "routes" ? "ROUTE PROFIT" : "CARGO NAV"}</p>
+                  <h1>{tradeTool === "routes" ? "参数设置" : "货物买卖"}</h1>
+                </div>
               </div>
 
               {tradeTool === "routes" ? (
@@ -2986,11 +2996,11 @@ export function VerseIndexApp() {
 
                   <StatusLine loading={routesLoading} source={routeSource} error={routesError} />
                   <div className="inventory-risk-note">
-                    <strong>UEX低库存风险算法</strong>
+                    <strong>ENIGMA低库存风险算法</strong>
                     <span>低：库存≥当前货仓2倍且数据较新。</span>
                     <span>中：库存够装但不足2倍，或数据旧/未公开库存。</span>
                     <span>高：库存低于当前货仓，或接近预计购买量。</span>
-                    <em>UEX low-stock risk: Low means enough and fresh; Medium means limited, stale, or unknown stock; High means likely short stock.</em>
+                    <em>ENIGMA low-stock risk: Low means enough and fresh; Medium means limited, stale, or unknown stock; High means likely short stock.</em>
                   </div>
 
                   <NewPlayerRouteGuide
@@ -3096,7 +3106,8 @@ export function VerseIndexApp() {
             </section>
 
             <section className="route-list">
-              {tradeTool === "routes" ? routes.map((route, routeIndex) => {
+              {tradeTool === "routes" ? (
+                routes.map((route, routeIndex) => {
                 const hasRouteLegs = (route.legs?.length ?? 0) > 1;
                 const inventoryStatus = getInventoryStatus(route, cargoScu);
 
@@ -3171,8 +3182,10 @@ export function VerseIndexApp() {
                     </div>
                   </article>
                 );
-              }) : sellOptions.map((option, optionIndex) => (
-                <article className="route-card" key={`${option.id}-${optionIndex}`}>
+                })
+              ) : (
+                sellOptions.map((option, optionIndex) => (
+                  <article className="route-card" key={`${option.id}-${optionIndex}`}>
                   <header>
                     <h2>{formatSellCommodity(option)}</h2>
                     <span className={`freshness ${option.freshness}`}>{option.freshness}</span>
@@ -3214,8 +3227,9 @@ export function VerseIndexApp() {
                     {option.gameVersion ? <span>{option.gameVersion}</span> : null}
                     {option.sourceUpdatedAt ? <span>Updated {option.sourceUpdatedAt}</span> : null}
                   </div>
-                </article>
-              ))}
+                  </article>
+                ))
+              )}
               {tradeTool === "routes" && !routes.length ? (
                 <article className="empty-state">
                   <h2>没有可盈利路线</h2>
@@ -3230,7 +3244,8 @@ export function VerseIndexApp() {
               ) : null}
             </section>
           </section>
-        ) : null}
+          </section>
+        )}
 
         {activePanel === "starmap" ? (
           <StarMapPanel selectedMapId={selectedMapId} onSelectMap={setSelectedMapId} />
@@ -3409,31 +3424,42 @@ export function VerseIndexApp() {
               </article>
             </div>
 
-            <section className="charter-document" aria-label="ENIGMA Charter">
-              <span className="charter-corner top-left" />
-              <span className="charter-corner top-right" />
-              <span className="charter-corner bottom-left" />
-              <span className="charter-corner bottom-right" />
-              <span className="charter-side left" />
-              <span className="charter-side right" />
-              <div className="charter-document-head">
-                <div className="charter-crest" aria-hidden="true">
-                  <span />
-                </div>
-                <p className="eyebrow">ENIGMA CHARTER</p>
-                <h2>自由贸易与中立合作宪章</h2>
-                <span>Charter of Free Commerce and Neutral Cooperation</span>
+            <section className={`charter-scroll${charterOpen ? " is-open" : ""}`}>
+              <div className="charter-scroll-roll">
+                <span>ENIGMA CHARTER</span>
+                <strong>《自由贸易与中立合作宪章》</strong>
+                <button className="charter-scroll-toggle" type="button" onClick={() => setCharterOpen((value) => !value)}>
+                  {charterOpen ? "Close / 收起" : "Click / 展开"}
+                </button>
               </div>
-              <div className="charter-clause-grid">
-                {enigmaCharterClauses.map((clause) => (
-                  <article key={clause.index}>
-                    <span>{clause.index}</span>
-                    <h3>{clause.title}</h3>
-                    {clause.paragraphs.map((paragraph) => (
-                      <p key={paragraph}>{paragraph}</p>
+              <div className="charter-scroll-body" aria-hidden={!charterOpen}>
+                <section className="charter-document" aria-label="ENIGMA Charter">
+                  <span className="charter-corner top-left" />
+                  <span className="charter-corner top-right" />
+                  <span className="charter-corner bottom-left" />
+                  <span className="charter-corner bottom-right" />
+                  <span className="charter-side left" />
+                  <span className="charter-side right" />
+                  <div className="charter-document-head">
+                    <div className="charter-crest" aria-hidden="true">
+                      <span />
+                    </div>
+                    <p className="eyebrow">ENIGMA CHARTER</p>
+                    <h2>自由贸易与中立合作宪章</h2>
+                    <span>Charter of Free Commerce and Neutral Cooperation</span>
+                  </div>
+                  <div className="charter-clause-grid">
+                    {enigmaCharterClauses.map((clause) => (
+                      <article key={clause.index}>
+                        <span>{clause.index}</span>
+                        <h3>{clause.title}</h3>
+                        {clause.paragraphs.map((paragraph) => (
+                          <p key={paragraph}>{paragraph}</p>
+                        ))}
+                      </article>
                     ))}
-                  </article>
-                ))}
+                  </div>
+                </section>
               </div>
             </section>
 
