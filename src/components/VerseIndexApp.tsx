@@ -468,6 +468,7 @@ interface SellNavigationOption {
   commodityZh?: string;
   terminal: string;
   terminalZh?: string;
+  terminalSlug?: string;
   location?: string;
   locationZh?: string;
   priceSell: number;
@@ -481,6 +482,8 @@ interface SellNavigationOption {
   sourceUpdatedAt?: string;
   freshness: string;
   sourceUrl: string;
+  commodityUrl?: string;
+  quality?: number;
 }
 
 interface SellNavigationApiResponse {
@@ -3039,7 +3042,7 @@ export function VerseIndexApp() {
                       />
                     </label>
                     <label>
-                      <span>Buy Price / SCU</span>
+                      <span>Cost / SCU</span>
                       <input
                         min={0}
                         type="number"
@@ -3058,9 +3061,10 @@ export function VerseIndexApp() {
                   <StatusLine loading={sellLoading} source={sellSource} error={sellError} />
                   <div className="inventory-risk-note">
                     <strong>卖货导航说明</strong>
+                    <span>卖矿默认成本为 0，不分品质。</span>
                     <span>按 UEX 静态价格估算 NPC 买点。</span>
                     <span>需求未知时，按输入货量估算。</span>
-                    <em>Sell navigation uses UEX static prices. Unknown demand is estimated by your cargo amount.</em>
+                    <em>Mining cost can stay 0. Sell navigation uses UEX static prices.</em>
                   </div>
 
                   <div className="metric-strip planner-metrics">
@@ -3174,7 +3178,7 @@ export function VerseIndexApp() {
                   </div>
                   <div className="route-detail-grid">
                     <div>
-                      <span>Sell</span>
+                      <span>Fixed Sell</span>
                       <strong>{formatNumber(option.priceSell)} UEC/SCU</strong>
                     </div>
                     <div>
@@ -3187,14 +3191,20 @@ export function VerseIndexApp() {
                     </div>
                     <div>
                       <span>Net</span>
-                      <strong>{typeof option.profit === "number" ? `${formatNumber(option.profit)} UEC` : "未填买价"}</strong>
+                      <strong>{typeof option.profit === "number" ? `${formatNumber(option.profit)} UEC` : "Cost 0"}</strong>
                     </div>
                   </div>
                   <div className="source-row">
                     <a href={option.sourceUrl} rel="noreferrer" target="_blank">
                       UEX Corp API
                     </a>
+                    {option.commodityUrl ? (
+                      <a href={option.commodityUrl} rel="noreferrer" target="_blank">
+                        Commodity
+                      </a>
+                    ) : null}
                     {option.containerSizes?.length ? <span>{option.containerSizes.join(" / ")} SCU</span> : null}
+                    {option.quality ? <span>Quality {option.quality}</span> : <span>No quality</span>}
                     {option.gameVersion ? <span>{option.gameVersion}</span> : null}
                     {option.sourceUpdatedAt ? <span>Updated {option.sourceUpdatedAt}</span> : null}
                   </div>

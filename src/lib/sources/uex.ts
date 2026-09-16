@@ -145,6 +145,7 @@ interface UexCommodityPrice {
   terminal_slug?: string | null;
   terminal_code?: string | null;
   terminal_is_player_owned?: number | boolean | null;
+  quality?: number | string | null;
 }
 
 export interface UexSellOption {
@@ -153,6 +154,7 @@ export interface UexSellOption {
   commodityZh?: string;
   terminal: string;
   terminalZh?: string;
+  terminalSlug?: string;
   location?: string;
   locationZh?: string;
   priceSell: number;
@@ -166,6 +168,8 @@ export interface UexSellOption {
   sourceUpdatedAt?: string;
   freshness: FreshnessStatus;
   sourceUrl: string;
+  commodityUrl?: string;
+  quality?: number;
 }
 
 interface CachedUexRoutes {
@@ -1126,6 +1130,7 @@ function mapUexPriceToSellOption(price: UexCommodityPrice, cargoScu: number, buy
     commodityZh: localizeCompositeName(price.commodity_name, "commodity"),
     terminal: price.terminal_name,
     terminalZh: localizeCompositeName(price.terminal_name, "location"),
+    terminalSlug: price.terminal_slug ?? undefined,
     location: location || undefined,
     locationZh: localizeLocationTrail(location),
     priceSell,
@@ -1133,14 +1138,18 @@ function mapUexPriceToSellOption(price: UexCommodityPrice, cargoScu: number, buy
     acceptedScu,
     demandScu,
     revenue,
-    profit: buyPricePerScu && buyPricePerScu > 0 ? revenue - acceptedScu * buyPricePerScu : undefined,
+    profit: revenue - acceptedScu * Math.max(0, buyPricePerScu ?? 0),
     containerSizes: parseContainerSizes(price.container_sizes),
     gameVersion: price.game_version ?? undefined,
     sourceUpdatedAt,
     freshness: getFreshness(sourceUpdatedAt),
-    sourceUrl: price.commodity_slug
-      ? `https://uexcorp.space/commodities/info/name/${price.commodity_slug}`
-      : "https://uexcorp.space/api/documentation/id/get_commodities_prices/"
+    sourceUrl: price.terminal_slug
+      ? `https://uexcorp.space/terminals/info/name/${price.terminal_slug}`
+      : price.commodity_slug
+        ? `https://uexcorp.space/commodities/info/name/${price.commodity_slug}`
+        : "https://uexcorp.space/api/documentation/id/get_commodities_prices/",
+    commodityUrl: price.commodity_slug ? `https://uexcorp.space/commodities/info/name/${price.commodity_slug}` : undefined,
+    quality: asNumber(price.quality) > 0 ? asNumber(price.quality) : undefined
   };
 }
 
