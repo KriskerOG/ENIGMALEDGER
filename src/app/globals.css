@@ -224,6 +224,11 @@ main {
   gap: 18px;
 }
 
+.work-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  align-items: start;
+}
+
 .trade-page-header {
   display: grid;
   grid-template-columns: minmax(220px, 0.8fr) minmax(300px, 1.1fr) auto;
@@ -285,6 +290,20 @@ main {
   align-items: end;
   justify-content: space-between;
   gap: 18px;
+}
+
+.heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.index-search-button {
+  min-height: 36px;
+  min-width: 78px;
+  padding: 0 14px;
+  font-size: 13px;
 }
 
 .eyebrow {
@@ -382,8 +401,11 @@ h2 {
 }
 
 .trade-command-row .primary-action,
-.trade-command-row .ghost-button {
-  min-height: 36px;
+.trade-command-row .sync-button {
+  min-width: 128px;
+  min-height: 56px;
+  padding: 0 22px;
+  font-size: 15px;
 }
 
 .primary-action {
@@ -402,7 +424,17 @@ h2 {
 
 .sync-button {
   min-width: 108px;
-  border-color: rgba(214, 168, 79, 0.34);
+  min-height: 42px;
+  border: 1px solid rgba(60, 200, 180, 0.52);
+  color: #04100f;
+  background: var(--teal);
+  padding: 0 16px;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.sync-button:hover {
+  filter: brightness(1.08);
 }
 
 .planner-grid {
@@ -1274,6 +1306,31 @@ button:focus-visible {
   line-height: 1.15;
 }
 
+.pilot-heading h2 {
+  font-size: clamp(32px, 5vw, 58px);
+  line-height: 0.95;
+}
+
+.pilot-trade-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  border: 1px solid rgba(214, 168, 79, 0.58);
+  color: var(--gold);
+  background: linear-gradient(180deg, rgba(214, 168, 79, 0.24), rgba(214, 168, 79, 0.1));
+  padding: 0 16px;
+  font-weight: 900;
+  text-decoration: none;
+  box-shadow: 0 0 22px rgba(214, 168, 79, 0.12);
+}
+
+.pilot-trade-button:hover {
+  border-color: rgba(244, 205, 128, 0.82);
+  color: #f4cd80;
+  background: linear-gradient(180deg, rgba(214, 168, 79, 0.34), rgba(214, 168, 79, 0.16));
+}
+
 .inline-starmap-frame {
   height: 340px;
   overflow: hidden;
@@ -1611,6 +1668,11 @@ button:focus-visible {
 
 .ship-picker-summary {
   grid-template-columns: auto minmax(0, 1fr);
+  border-color: rgba(214, 168, 79, 0.46);
+  background:
+    linear-gradient(90deg, rgba(214, 168, 79, 0.16), rgba(214, 168, 79, 0.04)),
+    rgba(255, 255, 255, 0.035);
+  box-shadow: inset 0 0 0 1px rgba(214, 168, 79, 0.08);
 }
 
 .manufacturer-mark {
@@ -1631,6 +1693,7 @@ button:focus-visible {
 }
 
 .manufacturer-identity strong {
+  color: var(--gold);
   font-size: 14px;
   line-height: 1.2;
 }
@@ -2841,14 +2904,10 @@ button:focus-visible {
 .charter-scroll-roll {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr auto;
-  grid-template-areas:
-    "label button"
-    "title title";
-  gap: 8px 18px;
-  align-items: center;
-  min-height: 126px;
-  padding: 20px 26px;
+  grid-template-columns: 1fr;
+  place-items: center;
+  min-height: 190px;
+  padding: 54px 32px;
   border: 1px solid rgba(247, 205, 116, 0.68);
   color: #fff6df;
   background:
@@ -2862,6 +2921,53 @@ button:focus-visible {
   isolation: isolate;
   overflow: hidden;
   container-type: inline-size;
+}
+
+.charter-scroll-roll > i {
+  position: absolute;
+  top: 50%;
+  z-index: 1;
+  width: clamp(78px, 10vw, 150px);
+  height: 34px;
+  opacity: 0.72;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(247, 205, 116, 0.9) 0 4px, transparent 5px),
+    radial-gradient(circle at 28% 50%, rgba(98, 201, 223, 0.74) 0 2px, transparent 3px),
+    radial-gradient(circle at 72% 50%, rgba(98, 201, 223, 0.74) 0 2px, transparent 3px),
+    linear-gradient(90deg, transparent, rgba(247, 205, 116, 0.78), transparent) center / 100% 2px no-repeat;
+}
+
+.charter-scroll-roll > i::before,
+.charter-scroll-roll > i::after {
+  content: "";
+  position: absolute;
+  top: 9px;
+  width: 18px;
+  height: 18px;
+  border: 1px solid rgba(247, 205, 116, 0.72);
+  transform: rotate(45deg);
+}
+
+.charter-scroll-roll > i::before {
+  left: 12px;
+}
+
+.charter-scroll-roll > i::after {
+  right: 12px;
+}
+
+.charter-scroll-ornament-left {
+  left: 54px;
+}
+
+.charter-scroll-ornament-right {
+  right: 54px;
+  transform: translateY(-50%) scaleX(-1);
+}
+
+.charter-scroll-ornament-left {
+  transform: translateY(-50%);
 }
 
 .charter-scroll-roll::before,
@@ -2882,18 +2988,18 @@ button:focus-visible {
 }
 
 .charter-scroll-roll::before {
-  top: 10px;
+  top: 16px;
 }
 
 .charter-scroll-roll::after {
-  bottom: 10px;
+  bottom: 16px;
 }
 
 .charter-scroll-roll span {
-  position: relative;
+  position: absolute;
   z-index: 2;
-  grid-area: label;
-  align-self: start;
+  top: 50px;
+  left: 54px;
   color: var(--gold);
   font-size: 13px;
   font-weight: 900;
@@ -2902,10 +3008,8 @@ button:focus-visible {
 
 .charter-scroll-roll strong {
   position: relative;
-  grid-area: title;
   z-index: 2;
-  justify-self: center;
-  width: min(980px, 100%);
+  width: min(820px, calc(100% - 260px));
   text-align: center;
   color: var(--text);
   font-size: clamp(20px, 4.1cqw, 52px);
@@ -2916,17 +3020,7 @@ button:focus-visible {
 
 .charter-scroll-roll strong::before,
 .charter-scroll-roll strong::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: clamp(44px, 8vw, 126px);
-  height: 18px;
-  opacity: 0.8;
-  background:
-    linear-gradient(90deg, transparent, rgba(247, 205, 116, 0.86), transparent) center / 100% 2px no-repeat,
-    radial-gradient(circle at 50% 50%, rgba(247, 205, 116, 0.9) 0 3px, transparent 4px),
-    radial-gradient(circle at 24% 50%, rgba(98, 201, 223, 0.76) 0 2px, transparent 3px),
-    radial-gradient(circle at 76% 50%, rgba(98, 201, 223, 0.76) 0 2px, transparent 3px);
+  content: none;
 }
 
 .charter-scroll-roll strong::before {
@@ -2940,11 +3034,10 @@ button:focus-visible {
 }
 
 .charter-scroll-toggle {
-  position: relative;
+  position: absolute;
   z-index: 2;
-  grid-area: button;
-  align-self: start;
-  justify-self: end;
+  right: 54px;
+  bottom: 28px;
   padding: 9px 12px;
   border: 1px solid rgba(247, 205, 116, 0.34);
   color: #eac061;
@@ -2963,11 +3056,13 @@ button:focus-visible {
 
 @container (max-width: 840px) {
   .charter-scroll-roll {
-    min-height: 130px;
+    min-height: 170px;
+    padding: 34px 26px 82px;
   }
 
   .charter-scroll-roll span {
-    justify-self: start;
+    top: 22px;
+    left: 26px;
   }
 
   .charter-scroll-roll strong {
@@ -2975,9 +3070,15 @@ button:focus-visible {
     font-size: clamp(17px, 4.8cqw, 28px);
   }
 
+  .charter-scroll-roll > i {
+    display: none;
+  }
+
   .charter-scroll-toggle {
-    justify-self: end;
-    margin-top: 0;
+    right: 26px;
+    bottom: 20px;
+    top: auto;
+    transform: none;
   }
 }
 

@@ -1018,7 +1018,7 @@ function StarMapOverlay({
             <h2>{selectedMap.label}</h2>
           </div>
           <div className="starmap-modal-actions">
-            <a className="ghost-button starmap-link" href={selectedMap.url} rel="noreferrer" target="_blank">
+            <a className="pilot-trade-button starmap-link" href={selectedMap.url} rel="noreferrer" target="_blank">
               Open
             </a>
             <button className="ghost-button" type="button" onClick={onClose}>
@@ -1044,7 +1044,7 @@ function StarMapPanel({ selectedMapId, onSelectMap }: StarMapSelectionProps) {
           <p className="eyebrow">VERSEGUIDE STARMAP</p>
           <h1>星图导航</h1>
         </div>
-        <a className="ghost-button starmap-link" href={selectedMap.url} rel="noreferrer" target="_blank">
+        <a className="pilot-trade-button starmap-link" href={selectedMap.url} rel="noreferrer" target="_blank">
           Open VerseGuide
         </a>
       </div>
@@ -1267,7 +1267,7 @@ function buildShipTasks(ship: CargoShipRecord | undefined, cargoScu: number): st
 
 function ShipCascadePicker({
   className,
-  label = "Ship",
+  label = "Ship / 船只",
   onShipChange,
   selectedShip,
   shipOptions
@@ -1848,20 +1848,15 @@ function PilotShipPanel({
 }) {
   const shipCargoScu = getShipCargoScu(selectedShip);
   const role = getShipRole(selectedShip);
-  const tasks = buildShipTasks(selectedShip, cargoScu);
-  const recommendedRoutes = buildRouteRecommendations(routes, cargoScu)
-    .map((recommendation) => recommendation.route)
-    .filter((route): route is CalculatedTradeRoute => Boolean(route))
-    .slice(0, 3);
   return (
     <aside className="pilot-panel">
       <div className="heading-row pilot-heading">
         <div>
           <p className="eyebrow">PILOT PROFILE</p>
-          <h2>当前飞船</h2>
+          <h2>选择当前飞船</h2>
         </div>
-        <button className="ghost-button" type="button" onClick={onOpenTrade}>
-          贸易
+        <button className="pilot-trade-button" type="button" onClick={onOpenTrade}>
+          贸易导航
         </button>
       </div>
 
@@ -1887,7 +1882,7 @@ function PilotShipPanel({
           <span className="manufacturer-mark">{selectedShip?.manufacturerCode ?? manufacturerCodeFromName(selectedShip?.manufacturer)}</span>
           <div>
             <strong>{selectedShip?.manufacturer ?? "Unknown manufacturer"}</strong>
-            <small>{shipCatalogSource} - {shipOptions.length} cargo ships</small>
+            <small>Manufacturer / 制造商</small>
           </div>
         </div>
       </section>
@@ -1901,119 +1896,6 @@ function PilotShipPanel({
           <span>Role</span>
           <strong>{role}</strong>
         </div>
-      </div>
-
-      <div className="pilot-inputs">
-        <label>
-          <span>Usable Cargo</span>
-          <input
-            min={0}
-            max={10000}
-            type="number"
-            value={getNumberInputValue(cargoScu)}
-            onChange={(event) => onCargoChange(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 10000))}
-          />
-        </label>
-        <label>
-          <span>Budget UEC</span>
-          <input
-            min={0}
-            step={1000}
-            type="number"
-            value={getNumberInputValue(budgetUec)}
-            onChange={(event) => onBudgetChange(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000000))}
-          />
-        </label>
-      </div>
-
-      <div className="pilot-inputs route-inputs">
-        <label>
-          <span>Origin</span>
-          <input
-            autoComplete="off"
-            list="trade-location-suggestions"
-            value={origin}
-            onChange={(event) => onOriginChange(event.currentTarget.value)}
-          />
-        </label>
-        <label>
-          <span>Destination</span>
-          <input
-            autoComplete="off"
-            list="trade-location-suggestions"
-            placeholder="Any profitable destination"
-            value={destination}
-            onChange={(event) => onDestinationChange(event.currentTarget.value)}
-          />
-        </label>
-      </div>
-
-      <div className="planner-row">
-        <label>
-          <span>Mode</span>
-          <select value={routeMode} onChange={(event) => onRouteModeChange(event.currentTarget.value as TradeRouteMode)}>
-            {routeModeOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Box Size</span>
-          <select value={containerSize} onChange={(event) => onContainerSizeChange(Number(event.currentTarget.value))}>
-            {containerSizeOptions.map((size) => (
-              <option key={size} value={size}>
-                {size ? `${size} SCU` : "自动"}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <span>Stops</span>
-          <select
-            value={String(stopCount)}
-            onChange={(event) =>
-              onStopCountChange(event.currentTarget.value === "auto" ? "auto" : clampRouteStopCount(Number(event.currentTarget.value)))
-            }
-          >
-            <option value="auto">Auto</option>
-            {[1, 2, 3, 4, 5, 6].map((count) => (
-              <option key={count} value={count}>
-                {getStopCountLabel(count)}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="task-row" aria-label="Recommended mission types">
-        {tasks.map((task) => (
-          <span key={task}>{task}</span>
-        ))}
-      </div>
-
-      <div className="route-preview-list">
-        {recommendedRoutes.length ? (
-          recommendedRoutes.map((route) => (
-            <article key={route.id}>
-              <div>
-                  <strong>{formatRouteCommodity(route)}</strong>
-                  <span>
-                    {formatRoutePath(route)}
-                  </span>
-              </div>
-              <em>{formatNumber(route.totalProfit)} UEC</em>
-            </article>
-          ))
-        ) : (
-          <article>
-            <div>
-              <strong>暂无贸易路线</strong>
-              <span>当前货仓或预算不足，建议切换任务类型。</span>
-            </div>
-          </article>
-        )}
       </div>
     </aside>
   );
@@ -2628,17 +2510,22 @@ export function VerseIndexApp() {
                   <p className="eyebrow">VERSE INDEX</p>
                   <h1>查询万物</h1>
                 </div>
-                <button
-                  className="ghost-button"
-                  type="button"
-                  onClick={() => {
-                    setQuery("");
-                    setType("all");
-                    setFreshness("all");
-                  }}
-                >
-                  清空
-                </button>
+                <div className="heading-actions">
+                  <button className="primary-action index-search-button" type="button" onClick={() => setQuery((value) => value.trim())}>
+                    搜索
+                  </button>
+                  <button
+                    className="primary-action index-search-button"
+                    type="button"
+                    onClick={() => {
+                      setQuery("");
+                      setType("all");
+                      setFreshness("all");
+                    }}
+                  >
+                    清空
+                  </button>
+                </div>
               </div>
 
               <div className="control-grid">
@@ -2657,20 +2544,6 @@ export function VerseIndexApp() {
                   <span>Type</span>
                   <select value={type} onChange={(event) => setType(event.currentTarget.value as EntityTypeFilter)}>
                     {typeOptions.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  <span>Freshness</span>
-                  <select
-                    value={freshness}
-                    onChange={(event) => setFreshness(event.currentTarget.value as FreshnessFilter)}
-                  >
-                    {freshnessOptions.map((option) => (
                       <option key={option.value} value={option.value}>
                         {option.label}
                       </option>
@@ -2810,10 +2683,6 @@ export function VerseIndexApp() {
             </section>
 
             <section className="side-stack">
-              <InlineStarMap
-                selectedMapId={selectedMapId}
-                onExpand={() => setMapExpanded(true)}
-              />
               <PilotShipPanel
                 budgetUec={budgetUec}
                 cargoScu={cargoScu}
@@ -2850,11 +2719,11 @@ export function VerseIndexApp() {
               </div>
               <div className="trade-subtabs" aria-label="Trade tools">
                 <button className={tradeTool === "routes" ? "active" : ""} type="button" onClick={() => setTradeTool("routes")}>
-                  航线收益
+                  自配航线导航
                   <small>Routes</small>
                 </button>
                 <button className={tradeTool === "sell" ? "active" : ""} type="button" onClick={() => setTradeTool("sell")}>
-                  货物导航
+                  买卖货物导航
                   <small>Cargo</small>
                 </button>
               </div>
@@ -2869,13 +2738,13 @@ export function VerseIndexApp() {
                   {tradeTool === "routes" ? "搜索航线" : sellMode === "sell" ? "搜索卖点" : "搜索买点"}
                 </button>
                 <button
-                  className="ghost-button sync-button"
+                  className="sync-button"
                   type="button"
                   onClick={() =>
                     tradeTool === "routes" ? setRouteRefreshNonce((value) => value + 1) : setSellRefreshNonce((value) => value + 1)
                   }
                 >
-                  同步 UEX
+                  刷新同步 UEX
                 </button>
               </div>
             </section>
@@ -2899,11 +2768,11 @@ export function VerseIndexApp() {
                       shipOptions={shipOptions}
                     />
                     <label>
-                      <span>Auto Cargo</span>
+                      <span>Auto Cargo / 自动货仓</span>
                       <input readOnly type="text" value={selectedShip ? `${selectedShip.cargoScu} SCU` : "Unknown"} />
                     </label>
                     <label>
-                      <span>Usable Cargo</span>
+                      <span>Usable Cargo / 可用货仓</span>
                       <input
                         max={10000}
                         min={1}
@@ -2913,7 +2782,7 @@ export function VerseIndexApp() {
                       />
                     </label>
                     <label>
-                      <span>Origin</span>
+                      <span>Origin / 起点</span>
                       <input
                         autoComplete="off"
                         list="trade-location-suggestions"
@@ -2922,7 +2791,7 @@ export function VerseIndexApp() {
                       />
                     </label>
                     <label>
-                      <span>Destination</span>
+                      <span>Destination / 终点</span>
                       <input
                         autoComplete="off"
                         list="trade-location-suggestions"
@@ -2932,7 +2801,7 @@ export function VerseIndexApp() {
                       />
                     </label>
                     <label>
-                      <span>Budget UEC</span>
+                      <span>Budget UEC / 预算</span>
                       <input
                         min={1}
                         step={1000}
@@ -2942,7 +2811,7 @@ export function VerseIndexApp() {
                       />
                     </label>
                     <div className="mode-control">
-                      <span>Transport Mode</span>
+                      <span>Transport Mode / 运输模式</span>
                       <div className="mode-toggle">
                         {routeModeOptions.map((option) => (
                           <button
@@ -2957,7 +2826,7 @@ export function VerseIndexApp() {
                       </div>
                     </div>
                     <label>
-                      <span>Box Size</span>
+                      <span>Box Size / 货箱尺寸</span>
                       <select value={containerSize} onChange={(event) => setContainerSize(Number(event.currentTarget.value))}>
                         {containerSizeOptions.map((size) => (
                           <option key={size} value={size}>
@@ -2967,7 +2836,7 @@ export function VerseIndexApp() {
                       </select>
                     </label>
                     <label>
-                      <span>Stops</span>
+                      <span>Stops / 停泊次数</span>
                       <select
                         value={String(routeStopCount)}
                         onChange={(event) =>
@@ -3036,7 +2905,7 @@ export function VerseIndexApp() {
               ) : (
                 <>
                   <div className="mode-control trade-flow-control">
-                    <span>Mode</span>
+                    <span>Mode / 模式</span>
                     <div className="mode-toggle">
                       <button className={sellMode === "buy" ? "active" : ""} type="button" onClick={() => setSellMode("buy")}>
                         找买点
@@ -3048,7 +2917,7 @@ export function VerseIndexApp() {
                   </div>
                   <div className="control-grid trade-controls planner-grid sell-grid">
                     <label className="wide-control">
-                      <span>Commodity</span>
+                      <span>Commodity / 货物</span>
                       <input
                         autoComplete="off"
                         list="trade-commodity-suggestions"
@@ -3058,7 +2927,7 @@ export function VerseIndexApp() {
                       />
                     </label>
                     <label>
-                      <span>Cargo SCU</span>
+                      <span>Cargo SCU / 货量</span>
                       <input
                         min={1}
                         type="number"
@@ -3427,6 +3296,8 @@ export function VerseIndexApp() {
             <section className={`charter-scroll${charterOpen ? " is-open" : ""}`}>
               <div className="charter-scroll-roll">
                 <span>ENIGMA CHARTER</span>
+                <i className="charter-scroll-ornament-left" aria-hidden="true" />
+                <i className="charter-scroll-ornament-right" aria-hidden="true" />
                 <strong>《自由贸易与中立合作宪章》</strong>
                 <button className="charter-scroll-toggle" type="button" onClick={() => setCharterOpen((value) => !value)}>
                   {charterOpen ? "Close / 收起" : "Click / 展开"}

@@ -1,5 +1,6 @@
 import { computeFreshnessStatus } from "../sync/freshness";
 import { cargoShipStats, type CargoShipStatsRecord } from "../generated/cargo-ship-stats";
+import { compactFuzzyText, fuzzyTextScore, normalizeFuzzyText } from "../fuzzy";
 import type { CargoShipRecord, EntityType, SearchInput, SearchRecord } from "../types";
 import { fetchJson } from "./http";
 
@@ -782,11 +783,7 @@ function dedupeCargoShips(ships: Array<CargoShipRecord | CargoShipStatsRecord>):
 }
 
 function normalizeCargoShipSearchText(value: string | number | null | undefined): string {
-  return String(value ?? "")
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[\s_\-·・:：,，.。;；'"()[\]（）/]+/g, " ")
-    .trim();
+  return normalizeFuzzyText(value);
 }
 
 function mapWikiVehicleToCargoShip(vehicle: WikiVehicle, fetchedAt = new Date()): CargoShipRecord | undefined {
@@ -918,23 +915,47 @@ function scoreCargoShipRecord(ship: CargoShipStatsRecord, query: string): number
   }
 
   const normalizedQuery = normalizeCargoShipSearchText(query);
+  const compactQuery = compactFuzzyText(query);
   const fields = [ship.name, ship.nameZh, ship.manufacturer, ship.manufacturerCode, ship.role, ship.productionState]
     .map(normalizeCargoShipSearchText)
     .filter(Boolean);
+  const compactFields = [ship.name, ship.nameZh, ship.manufacturer, ship.manufacturerCode, ship.role, ship.productionState]
+    .map(compactFuzzyText)
+    .filter(Boolean);
+  const fuzzy = Math.max(
+    fuzzyTextScore(ship.name, query),
+    fuzzyTextScore(ship.nameZh, query),
+    fuzzyTextScore(ship.manufacturer, query),
+    fuzzyTextScore(ship.manufacturerCode, query),
+    fuzzyTextScore(ship.role, query),
+    fuzzyTextScore(ship.productionState, query)
+  );
 
   if (fields.some((field) => field === normalizedQuery)) {
     return 100;
+  }
+
+  if (compactFields.some((field) => field === compactQuery)) {
+    return 96;
   }
 
   if (fields.some((field) => field.startsWith(normalizedQuery))) {
     return 70;
   }
 
+  if (compactFields.some((field) => field.startsWith(compactQuery))) {
+    return 66;
+  }
+
   if (fields.some((field) => field.includes(normalizedQuery))) {
     return 35;
   }
 
-  return 0;
+  if (compactFields.some((field) => field.includes(compactQuery))) {
+    return 32;
+  }
+
+  return fuzzy;
 }
 
 function cargoShipStatToSearchRecord(ship: CargoShipStatsRecord): SearchRecord {

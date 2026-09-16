@@ -185698,12 +185698,10 @@ export const localizationAliases: LocalizationAlias[] = [
   }
 ];
 
+import { compactFuzzyText, fuzzyTextScore, normalizeFuzzyText } from "../fuzzy";
+
 export function normalizeLocalizationAliasText(value: string | number | null | undefined): string {
-  return String(value ?? "")
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/[\s_\-·・:：,，.。;；'\"()[\]（）]+/g, " ")
-    .trim();
+  return normalizeFuzzyText(value);
 }
 
 function normalizeLooseLocalizationAliasText(value: string | number | null | undefined): string {
@@ -185723,13 +185721,26 @@ export function findLocalizationAliases(query: string | undefined, limit = 8, al
       const zh = normalizeLocalizationAliasText(alias.zh);
       const en = normalizeLocalizationAliasText(alias.en);
       const key = normalizeLocalizationAliasText(alias.key);
+      const compactQuery = compactFuzzyText(query);
+      const compactZh = compactFuzzyText(alias.zh);
+      const compactEn = compactFuzzyText(alias.en);
+      const compactKey = compactFuzzyText(alias.key);
       const looseEn = normalizeLooseLocalizationAliasText(alias.en);
-      const exact = zh === normalizedQuery || en === normalizedQuery ? 100 : 0;
-      const prefix = zh.startsWith(normalizedQuery) || en.startsWith(normalizedQuery) ? 70 : 0;
-      const contains = zh.includes(normalizedQuery) || en.includes(normalizedQuery) || key.includes(normalizedQuery) ? 35 : 0;
-      const reverseContains = normalizedQuery.includes(zh) || normalizedQuery.includes(en) ? 20 : 0;
+      const exact = zh === normalizedQuery || en === normalizedQuery || compactZh === compactQuery || compactEn === compactQuery ? 100 : 0;
+      const prefix = zh.startsWith(normalizedQuery) || en.startsWith(normalizedQuery) || compactZh.startsWith(compactQuery) || compactEn.startsWith(compactQuery) ? 70 : 0;
+      const contains =
+        zh.includes(normalizedQuery) ||
+        en.includes(normalizedQuery) ||
+        key.includes(normalizedQuery) ||
+        compactZh.includes(compactQuery) ||
+        compactEn.includes(compactQuery) ||
+        compactKey.includes(compactQuery)
+          ? 35
+          : 0;
+      const reverseContains = normalizedQuery.includes(zh) || normalizedQuery.includes(en) || compactQuery.includes(compactZh) || compactQuery.includes(compactEn) ? 20 : 0;
       const loose = looseQuery.length >= 4 && looseEn.length >= 4 && (looseEn === looseQuery || looseEn.includes(looseQuery) || looseQuery.includes(looseEn)) ? 18 : 0;
-      const score = exact || prefix || contains || reverseContains || loose;
+      const fuzzy = Math.max(fuzzyTextScore(alias.zh, query), fuzzyTextScore(alias.en, query), fuzzyTextScore(alias.key, query));
+      const score = exact || prefix || contains || reverseContains || fuzzy || loose;
 
       return { alias, score };
     })

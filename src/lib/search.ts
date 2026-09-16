@@ -1,14 +1,12 @@
 import { mockRecords } from "./mock-data";
+import { compactFuzzyText, fuzzyTextScore, normalizeFuzzyText } from "./fuzzy";
 import type { SearchInput, SearchRecord } from "./types";
 
 const DEFAULT_LIMIT = 25;
 const MAX_LIMIT = 50;
 
 export function normalizeSearchText(value: string | number | null | undefined): string {
-  return String(value ?? "")
-    .toLowerCase()
-    .trim()
-    .normalize("NFKD");
+  return normalizeFuzzyText(value);
 }
 
 function buildSearchDocument(record: SearchRecord): string {
@@ -36,20 +34,19 @@ function scoreRecord(record: SearchRecord, query: string): number {
   const name = normalizeSearchText(record.name);
   const nameZh = normalizeSearchText(record.nameZh);
   const document = buildSearchDocument(record);
+  const compactDocument = compactFuzzyText(document);
+  const compactQuery = compactFuzzyText(query);
+  const directScore = Math.max(fuzzyTextScore(record.name, query), fuzzyTextScore(record.nameZh, query));
 
-  if (name === query || nameZh === query) {
-    return 100;
+  if (directScore) {
+    return directScore;
   }
 
-  if (name.startsWith(query) || nameZh.startsWith(query)) {
-    return 80;
+  if (document.includes(query)) {
+    return 20;
   }
 
-  if (name.includes(query) || nameZh.includes(query)) {
-    return 60;
-  }
-
-  return document.includes(query) ? 20 : 0;
+  return compactQuery && compactDocument.includes(compactQuery) ? 18 : 0;
 }
 
 export function searchRecords(input: SearchInput, sourceRecords: SearchRecord[] = mockRecords): SearchRecord[] {
