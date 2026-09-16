@@ -164,6 +164,7 @@ let PARATRANZ_TERMS_CACHE = {
   promise: undefined,
 };
 let UEX_TERMINAL_CACHE;
+let UEX_COMMODITY_CACHE;
 
 const ENTITY_TYPES = new Set([
   "all",
@@ -183,7 +184,7 @@ const FRESHNESS_VALUES = new Set(["all", "fresh", "recent", "stale", "unknown"])
 const SOURCE_VALUES = new Set(["all", "local", "wiki", "database"]);
 const TRADE_SOURCE_VALUES = new Set(["auto", "uex", "sample"]);
 const TRADE_ROUTE_MODES = new Set(["mixed", "space"]);
-const UEX_RESOURCES = new Set(["commodities_routes", "terminals"]);
+const UEX_RESOURCES = new Set(["commodities", "commodities_prices", "commodities_routes", "terminals"]);
 const ALIAS_ZH_BY_ENGLISH_CACHE = new Map();
 
 const SECURITY_HEADERS = {
@@ -3215,6 +3216,207 @@ function fallbackTradeLocationSuggestions(query, limit) {
   }));
 }
 
+async function fetchUexCommodities(env, refresh = false) {
+  if (!refresh && UEX_COMMODITY_CACHE && UEX_COMMODITY_CACHE.expiresAt > Date.now()) {
+    return UEX_COMMODITY_CACHE.commodities;
+  }
+
+  const response = await fetchUexResource(env, "commodities", {}, 18000);
+  const commodities = arrayFromData(response.data).filter(
+    (commodity) => Boolean(commodity?.name) && isEnabledFlag(commodity.is_available) && isEnabledFlag(commodity.is_visible),
+  );
+
+  UEX_COMMODITY_CACHE = {
+    expiresAt: Date.now() + UEX_ROUTE_CACHE_TTL_MS,
+    commodities,
+  };
+
+  return commodities;
+}
+
+function resolveUexCommodity(commodities, query) {
+  const normalizedQuery = normalizeTradeAliasText(query);
+  const localizedExact = Object.entries(getStaticUexCommodityNames()).find(
+    ([english, chinese]) => normalizeTradeAliasText(english) === normalizedQuery || normalizeTradeAliasText(chinese) === normalizedQuery,
+  )?.[0];
+  const exactCandidates = [query, localizedExact].map((candidate) => normalizeTradeAliasText(candidate)).filter(Boolean);
+
+  const exactMatch = commodities.find((commodity) => {
+    const values = [commodity.name, commodity.code, commodity.slug].map((value) => normalizeTradeAliasText(value)).filter(Boolean);
+    return exactCandidates.some((candidate) => values.some((value) => value === candidate));
+  });
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const candidates = [query, localizedExact, resolveTradeQuery(query, "commodity"), ...getTradeQueryCandidates(query, "commodity", 8)]
+    .map((candidate) => normalizeTradeAliasText(candidate))
+    .filter(Boolean);
+
+  return commodities.find((commodity) => {
+    const values = [commodity.name, commodity.code, commodity.slug].map((value) => normalizeTradeAliasText(value)).filter(Boolean);
+    return candidates.some((candidate) => values.some((value) => value === candidate || value.includes(candidate) || candidate.includes(value)));
+  });
+}
+
+function isUexPriceActive(value) {
+  return value === undefined || value === null || value === true || numberOrZero(value) > 0;
+}
+
+function getUexPriceQuantityScu(price, mode) {
+  const quantity =
+    mode === "sell"
+      ? Math.max(numberOrZero(price.scu_buy), numberOrZero(price.scu_buy_avg), numberOrZero(price.scu_buy_max))
+      : Math.max(numberOrZero(price.scu_sell), numberOrZero(price.scu_sell_avg), numberOrZero(price.scu_sell_max));
+
+  return quantity > 0 ? Math.floor(quantity) : undefined;
+}
+
+function mapUexPriceToSellOption(price, cargoScu, buyPricePerScu, mode) {
+  const pricePerScu =
+    mode === "sell"
+      ? numberOrZero(price.price_buy) || numberOrZero(price.price_buy_avg) || numberOrZero(price.price_buy_max)
+      : numberOrZero(price.price_sell) || numberOrZero(price.price_sell_avg) || numberOrZero(price.price_sell_max);
+
+  if (!price.commodity_name || !price.terminal_name || pricePerScu <= 0 || price.terminal_is_player_owned) {
+    return undefined;
+  }
+
+  const status = mode === "sell" ? price.status_buy : price.status_sell;
+
+  if (!isUexPriceActive(status)) {
+    return undefined;
+  }
+
+  const quantityScu = getUexPriceQuantityScu(price, mode);
+  const acceptedScu = Math.max(0, Math.min(Math.floor(cargoScu), quantityScu ?? Math.floor(cargoScu)));
+
+  if (acceptedScu <= 0) {
+    return undefined;
+  }
+
+  const location = buildUexLocationTrail(
+    price.star_system_name,
+    price.planet_name ?? price.moon_name ?? price.city_name,
+    price.orbit_name ?? price.outpost_name ?? price.poi_name,
+  );
+  const sourceUpdatedAt = toIsoDateFromUnixSeconds(price.date_modified);
+  const revenue = acceptedScu * pricePerScu;
+
+  return {
+    id: `uex-${mode}-${price.id ?? price.id_terminal ?? price.terminal_slug}`,
+    mode,
+    commodity: price.commodity_name,
+    commodityZh: localizeCompositeName(price.commodity_name, "commodity"),
+    terminal: price.terminal_name,
+    terminalZh: localizeCompositeName(price.terminal_name, "location"),
+    terminalSlug: price.terminal_slug ?? undefined,
+    location: location || undefined,
+    locationZh: localizeLocationTrail(location),
+    priceSell: pricePerScu,
+    cargoScu,
+    acceptedScu,
+    demandScu: quantityScu,
+    revenue,
+    profit: revenue - acceptedScu * Math.max(0, buyPricePerScu ?? 0),
+    containerSizes: parseUexContainerSizes(price.container_sizes),
+    gameVersion: price.game_version ?? undefined,
+    sourceUpdatedAt,
+    freshness: getRouteFreshness(sourceUpdatedAt),
+    sourceUrl: price.terminal_slug
+      ? `https://uexcorp.space/terminals/info/name/${price.terminal_slug}`
+      : price.commodity_slug
+        ? `https://uexcorp.space/commodities/info/name/${price.commodity_slug}`
+        : "https://uexcorp.space/api/documentation/id/get_commodities_prices/",
+    commodityUrl: price.commodity_slug ? `https://uexcorp.space/commodities/info/name/${price.commodity_slug}` : undefined,
+    quality: numberOrZero(price.quality) > 0 ? numberOrZero(price.quality) : undefined,
+  };
+}
+
+async function fetchUexSellOptions(env, input) {
+  const cargoScu = Math.max(1, Math.floor(numberOrZero(input.cargoScu)));
+  const limit = clampInteger(input.limit, 50, 1, 100);
+  const mode = cleanEnum(input.mode ?? "sell", new Set(["buy", "sell"]), "sell");
+  const commodities = await fetchUexCommodities(env, input.refresh);
+  const commodity = resolveUexCommodity(commodities, String(input.commodity ?? "").trim());
+
+  if (!commodity?.id && !commodity?.name) {
+    throw new Error(`UEX commodity not found: ${input.commodity}`);
+  }
+
+  const params = commodity.id ? { id_commodity: commodity.id } : { commodity_name: commodity.name ?? input.commodity };
+  const response = await fetchUexResource(env, "commodities_prices", params, 18000);
+  const options = arrayFromData(response.data)
+    .map((price) => mapUexPriceToSellOption(price, cargoScu, numberOrZero(input.buyPricePerScu), mode))
+    .filter(Boolean)
+    .sort((left, right) =>
+      mode === "buy" ? left.priceSell - right.priceSell || right.acceptedScu - left.acceptedScu : right.priceSell - left.priceSell || right.revenue - left.revenue,
+    )
+    .slice(0, limit);
+
+  return { commodity, options };
+}
+
+async function handleTradeSellApi(request, env, url) {
+  if (request.method !== "GET") {
+    return jsonResponse({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
+  }
+
+  const rateLimit = rateLimitRequest(request, "trade-sell", 80, 60);
+
+  if (!rateLimit.allowed) {
+    return jsonResponse(
+      { error: "Too many sell navigation requests." },
+      {
+        status: 429,
+        headers: {
+          "Retry-After": String(Math.ceil((rateLimit.resetAt - Date.now()) / 1000)),
+        },
+      },
+    );
+  }
+
+  const commodity = String(url.searchParams.get("commodity") ?? "").trim().slice(0, 120);
+
+  if (!commodity) {
+    return jsonResponse({ error: "Invalid sell navigation query.", issues: { commodity: ["Required"] } }, { status: 400 });
+  }
+
+  try {
+    const result = await fetchUexSellOptions(env, {
+      commodity,
+      mode: cleanEnum(url.searchParams.get("mode") ?? "sell", new Set(["buy", "sell"]), "sell"),
+      cargoScu: clampInteger(url.searchParams.get("cargoScu"), 100, 1, 100000),
+      buyPricePerScu: Math.max(0, numberOrZero(url.searchParams.get("buyPricePerScu"))),
+      limit: clampInteger(url.searchParams.get("limit"), 50, 1, 100),
+      refresh: ["1", "true"].includes(url.searchParams.get("refresh") ?? ""),
+    });
+
+    return jsonResponse({
+      data: result.options,
+      meta: {
+        count: result.options.length,
+        source: "uex-prices",
+        commodity: result.commodity?.name,
+        rateLimit: {
+          limit: rateLimit.limit,
+          remaining: rateLimit.remaining,
+          resetAt: new Date(rateLimit.resetAt).toISOString(),
+        },
+      },
+    });
+  } catch (error) {
+    return jsonResponse(
+      {
+        error: "UEX sell navigation unavailable.",
+        message: error instanceof Error ? error.message : "Unknown UEX API error.",
+      },
+      { status: 502 },
+    );
+  }
+}
+
 async function handleTradeLocationsApi(request, env, url) {
   if (request.method !== "GET") {
     return jsonResponse({ error: "Method not allowed." }, { status: 405, headers: { allow: "GET" } });
@@ -3944,6 +4146,10 @@ async function handleApi(request, env, url) {
 
   if (url.pathname === "/api/trade/locations") {
     return handleTradeLocationsApi(request, env, url);
+  }
+
+  if (url.pathname === "/api/trade/sell") {
+    return handleTradeSellApi(request, env, url);
   }
 
   if (url.pathname === "/api/trade/ships") {
