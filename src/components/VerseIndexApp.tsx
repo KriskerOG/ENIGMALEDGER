@@ -1480,6 +1480,25 @@ function formatRoutePath(route: CalculatedTradeRoute): string {
   return `${formatRouteTerminal(route.buyTerminal, route.buyTerminalZh)} -> ${formatRouteTerminal(route.sellTerminal, route.sellTerminalZh)}`;
 }
 
+function renderArrowText(value: string, className?: string) {
+  const parts = value.split(/\s*->\s*/).filter(Boolean);
+
+  if (parts.length <= 1) {
+    return className ? <span className={className}>{value}</span> : value;
+  }
+
+  return (
+    <span className={className}>
+      {parts.map((part, index) => (
+        <span key={`${part}-${index}`}>
+          {index > 0 ? <span className="route-arrow">→</span> : null}
+          {part}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function formatSellCommodity(option: Pick<SellNavigationOption, "commodity" | "commodityZh">): string {
   return formatBilingualName(option.commodity, option.commodityZh);
 }
@@ -1757,8 +1776,8 @@ function NewPlayerRouteGuide({
 
               {route ? (
                 <>
-                  <p className="recommendation-path">{formatRoutePath(route)}</p>
-                  <div className="recommendation-commodity">{formatRouteCommodity(route)}</div>
+                  <p className="recommendation-path">{renderArrowText(formatRoutePath(route))}</p>
+                  <div className="recommendation-commodity">{renderArrowText(formatRouteCommodity(route))}</div>
                   <div className="recommendation-stats">
                     <div>
                       <span>Profit</span>
@@ -2986,8 +3005,8 @@ export function VerseIndexApp() {
                       <h2>{hasRouteLegs ? getRouteKindLabel(route) : formatRouteCommodity(route)}</h2>
                       <span className={`freshness ${route.source.freshness}`}>{route.source.freshness}</span>
                     </header>
-                    <p>{formatRoutePath(route)}</p>
-                    {hasRouteLegs ? <div className="route-plan-commodity">{formatRouteCommodity(route)}</div> : null}
+                    <p>{renderArrowText(formatRoutePath(route))}</p>
+                    {hasRouteLegs ? <div className="route-plan-commodity">{renderArrowText(formatRouteCommodity(route))}</div> : null}
                     <div className="route-profit">
                       <span>
                         {hasRouteLegs
@@ -3023,10 +3042,12 @@ export function VerseIndexApp() {
                             <span>{index + 1}</span>
                             <strong>{formatRouteCommodity(leg)}</strong>
                             <em>
-                              {`${formatRouteTerminal(leg.buyTerminal, leg.buyTerminalZh)} -> ${formatRouteTerminal(
-                                leg.destinationTerminalName ?? leg.sellTerminal,
-                                leg.sellTerminalZh
-                              )}`}
+                              {renderArrowText(
+                                `${formatRouteTerminal(leg.buyTerminal, leg.buyTerminalZh)} -> ${formatRouteTerminal(
+                                  leg.destinationTerminalName ?? leg.sellTerminal,
+                                  leg.sellTerminalZh
+                                )}`
+                              )}
                             </em>
                             <small>{`${formatNumber(leg.purchasableScu)} SCU / ${formatNumber(leg.totalProfit)} UEC`}</small>
                           </div>

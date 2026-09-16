@@ -225,7 +225,7 @@ main {
 }
 
 .work-grid {
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 420px);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: start;
 }
 
@@ -1240,6 +1240,16 @@ button:focus-visible {
   font-weight: 800;
 }
 
+.route-arrow {
+  display: inline-block;
+  margin: 0 0.38em;
+  color: #d6a84f;
+  font-weight: 900;
+  text-shadow:
+    0 0 10px rgba(214, 168, 79, 0.38),
+    0 0 2px rgba(255, 239, 190, 0.28);
+}
+
 .route-leg-list {
   display: grid;
   gap: 8px;
@@ -1255,7 +1265,7 @@ button:focus-visible {
   padding: 10px;
 }
 
-.route-leg-list span {
+.route-leg-list div > span:first-child {
   display: grid;
   width: 22px;
   height: 22px;
