@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { mockRecords } from "@/lib/mock-data";
 import { calculateTradeRoutes } from "@/lib/trade";
 import { dataSourceCatalog, type DataSourceCatalogItem } from "@/lib/sources/catalog";
+import { uexCommodityNames } from "@/lib/generated/uex-commodity-names";
 import type {
   CalculatedTradeRoute,
   CargoShipRecord,
@@ -458,6 +459,36 @@ interface TradeLocationApiResponse {
     count: number;
     source: string;
     warning?: string;
+  };
+}
+
+interface SellNavigationOption {
+  id: string;
+  commodity: string;
+  commodityZh?: string;
+  terminal: string;
+  terminalZh?: string;
+  location?: string;
+  locationZh?: string;
+  priceSell: number;
+  cargoScu: number;
+  acceptedScu: number;
+  demandScu?: number;
+  revenue: number;
+  profit?: number;
+  containerSizes?: number[];
+  gameVersion?: string;
+  sourceUpdatedAt?: string;
+  freshness: string;
+  sourceUrl: string;
+}
+
+interface SellNavigationApiResponse {
+  data: SellNavigationOption[];
+  meta: {
+    count: number;
+    source: string;
+    commodity?: string;
   };
 }
 
@@ -1445,6 +1476,17 @@ function formatRoutePath(route: CalculatedTradeRoute): string {
   return `${formatRouteTerminal(route.buyTerminal, route.buyTerminalZh)} -> ${formatRouteTerminal(route.sellTerminal, route.sellTerminalZh)}`;
 }
 
+function formatSellCommodity(option: Pick<SellNavigationOption, "commodity" | "commodityZh">): string {
+  return formatBilingualName(option.commodity, option.commodityZh);
+}
+
+function formatSellLocation(option: SellNavigationOption): string {
+  const terminal = formatBilingualName(option.terminal, option.terminalZh);
+  const location = formatBilingualName(option.location, option.locationZh);
+
+  return location ? `${terminal} / ${location}` : terminal;
+}
+
 function getRouteLegCount(route: CalculatedTradeRoute): number {
   return route.legs?.length ?? 1;
 }
@@ -2022,6 +2064,17 @@ export function VerseIndexApp() {
   const [routesError, setRoutesError] = useState<string>();
   const [sourceCatalog, setSourceCatalog] = useState<DataSourceCatalogItem[]>([]);
   const [routePlanMode, setRoutePlanMode] = useState<"direct" | "loop">("direct");
+  const [tradeTool, setTradeTool] = useState<"routes" | "sell">("routes");
+  const [sellCommodity, setSellCommodity] = useState("Beryl");
+  const [sellCargoScu, setSellCargoScu] = useState(100);
+  const [sellBuyPricePerScu, setSellBuyPricePerScu] = useState(0);
+  const [sellSearchNonce, setSellSearchNonce] = useState(0);
+  const [sellRefreshNonce, setSellRefreshNonce] = useState(0);
+  const sellRefreshConsumedRef = useRef(0);
+  const [sellOptions, setSellOptions] = useState<SellNavigationOption[]>([]);
+  const [sellSource, setSellSource] = useState("uex-prices");
+  const [sellLoading, setSellLoading] = useState(false);
+  const [sellError, setSellError] = useState<string>();
   const [clockNow, setClockNow] = useState(() => new Date());
   const [newsItems, setNewsItems] = useState<OfficialNewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(false);
@@ -2261,6 +2314,60 @@ export function VerseIndexApp() {
 
   useEffect(() => {
     let active = true;
+    const refreshNow = sellRefreshNonce !== sellRefreshConsumedRef.current;
+    const params = new URLSearchParams({
+      commodity: sellCommodity,
+      cargoScu: String(sellCargoScu || 0),
+      buyPricePerScu: String(sellBuyPricePerScu || 0),
+      limit: "50"
+    });
+
+    if (refreshNow) {
+      params.set("refresh", "1");
+    }
+
+    setSellLoading(true);
+    setSellError(undefined);
+
+    fetch(`/api/trade/sell?${params.toString()}`)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Sell API ${response.status}`);
+        }
+
+        return response.json() as Promise<SellNavigationApiResponse>;
+      })
+      .then((payload) => {
+        if (!active) {
+          return;
+        }
+
+        setSellOptions(payload.data);
+        setSellSource(payload.meta.source);
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+
+        setSellOptions([]);
+        setSellSource("uex-prices");
+        setSellError("卖货导航暂时不可用 / Sell navigation unavailable");
+      })
+      .finally(() => {
+        if (active) {
+          sellRefreshConsumedRef.current = sellRefreshNonce;
+          setSellLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [sellRefreshNonce, sellSearchNonce]);
+
+  useEffect(() => {
+    let active = true;
 
     fetch("/api/sources")
       .then((response) => response.json() as Promise<SourcesApiResponse>)
@@ -2380,6 +2487,14 @@ export function VerseIndexApp() {
   const shipOptions = useMemo(() => {
     return mergeCargoShipOptions(shipCatalog, indexedShipOptions, fallbackShipOptions);
   }, [fallbackShipOptions, indexedShipOptions, shipCatalog]);
+  const commodityOptions = useMemo(
+    () =>
+      Object.entries(uexCommodityNames)
+        .flatMap(([name, nameZh]) => [name, nameZh && nameZh !== name ? `${nameZh} / ${name}` : undefined])
+        .filter((value): value is string => Boolean(value))
+        .slice(0, 500),
+    []
+  );
   const selectedShip = useMemo(
     () =>
       findBestCargoShipMatch(shipOptions, selectedShipId) ??
@@ -2489,6 +2604,11 @@ export function VerseIndexApp() {
       <datalist id="trade-location-suggestions">
         {tradeLocationOptions.map((location) => (
           <option key={location.value} value={location.value} label={location.label} />
+        ))}
+      </datalist>
+      <datalist id="trade-commodity-suggestions">
+        {commodityOptions.map((commodity) => (
+          <option key={commodity} value={commodity} />
         ))}
       </datalist>
 
@@ -2719,163 +2839,254 @@ export function VerseIndexApp() {
               <div className="planner-toolbar">
                 <div>
                   <p className="eyebrow">COMMERCE</p>
-                  <h1>航线收益</h1>
+                  <h1>{tradeTool === "routes" ? "航线收益" : "卖货导航"}</h1>
                 </div>
                 <div className="planner-actions">
-                  <button className="primary-action" type="button" onClick={() => setRouteSearchNonce((value) => value + 1)}>
-                    搜索航线
+                  <button
+                    className="primary-action"
+                    type="button"
+                    onClick={() =>
+                      tradeTool === "routes" ? setRouteSearchNonce((value) => value + 1) : setSellSearchNonce((value) => value + 1)
+                    }
+                  >
+                    {tradeTool === "routes" ? "搜索航线" : "搜索卖点"}
                   </button>
-                  <button className="ghost-button sync-button" type="button" onClick={() => setRouteRefreshNonce((value) => value + 1)}>
+                  <button
+                    className="ghost-button sync-button"
+                    type="button"
+                    onClick={() =>
+                      tradeTool === "routes" ? setRouteRefreshNonce((value) => value + 1) : setSellRefreshNonce((value) => value + 1)
+                    }
+                  >
                     同步 UEX
                   </button>
                 </div>
               </div>
 
-              <div className="control-grid trade-controls planner-grid">
-                <ShipCascadePicker
-                  className="wide-control"
-                  onShipChange={handleShipChange}
-                  selectedShip={selectedShip}
-                  shipOptions={shipOptions}
-                />
-                <label>
-                  <span>Auto Cargo</span>
-                  <input readOnly type="text" value={selectedShip ? `${selectedShip.cargoScu} SCU` : "Unknown"} />
-                </label>
-                <label>
-                  <span>Usable Cargo</span>
-                  <input
-                    max={10000}
-                    min={1}
-                    type="number"
-                    value={getNumberInputValue(cargoScu)}
-                    onChange={(event) => setCargoScu(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 10000))}
-                  />
-                </label>
-                <label>
-                  <span>Origin</span>
-                  <input
-                    autoComplete="off"
-                    list="trade-location-suggestions"
-                    value={tradeOrigin}
-                    onChange={(event) => setTradeOrigin(event.currentTarget.value)}
-                  />
-                </label>
-                <label>
-                  <span>Destination</span>
-                  <input
-                    autoComplete="off"
-                    list="trade-location-suggestions"
-                    placeholder="Any destination"
-                    value={tradeDestination}
-                    onChange={(event) => setTradeDestination(event.currentTarget.value)}
-                  />
-                </label>
-                <label>
-                  <span>Budget UEC</span>
-                  <input
-                    min={1}
-                    step={1000}
-                    type="number"
-                    value={getNumberInputValue(budgetUec)}
-                    onChange={(event) => setBudgetUec(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000000))}
-                  />
-                </label>
-                <div className="mode-control">
-                  <span>Transport Mode</span>
-                  <div className="mode-toggle">
-                    {routeModeOptions.map((option) => (
-                      <button
-                        className={routeMode === option.value ? "active" : ""}
-                        key={option.value}
-                        type="button"
-                        onClick={() => setRouteMode(option.value)}
+              <div className="trade-subtabs" aria-label="Trade tools">
+                <button className={tradeTool === "routes" ? "active" : ""} type="button" onClick={() => setTradeTool("routes")}>
+                  航线收益
+                </button>
+                <button className={tradeTool === "sell" ? "active" : ""} type="button" onClick={() => setTradeTool("sell")}>
+                  卖货导航
+                </button>
+              </div>
+
+              {tradeTool === "routes" ? (
+                <>
+                  <div className="control-grid trade-controls planner-grid">
+                    <ShipCascadePicker
+                      className="wide-control"
+                      onShipChange={handleShipChange}
+                      selectedShip={selectedShip}
+                      shipOptions={shipOptions}
+                    />
+                    <label>
+                      <span>Auto Cargo</span>
+                      <input readOnly type="text" value={selectedShip ? `${selectedShip.cargoScu} SCU` : "Unknown"} />
+                    </label>
+                    <label>
+                      <span>Usable Cargo</span>
+                      <input
+                        max={10000}
+                        min={1}
+                        type="number"
+                        value={getNumberInputValue(cargoScu)}
+                        onChange={(event) => setCargoScu(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 10000))}
+                      />
+                    </label>
+                    <label>
+                      <span>Origin</span>
+                      <input
+                        autoComplete="off"
+                        list="trade-location-suggestions"
+                        value={tradeOrigin}
+                        onChange={(event) => setTradeOrigin(event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Destination</span>
+                      <input
+                        autoComplete="off"
+                        list="trade-location-suggestions"
+                        placeholder="Any destination"
+                        value={tradeDestination}
+                        onChange={(event) => setTradeDestination(event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Budget UEC</span>
+                      <input
+                        min={1}
+                        step={1000}
+                        type="number"
+                        value={getNumberInputValue(budgetUec)}
+                        onChange={(event) => setBudgetUec(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000000))}
+                      />
+                    </label>
+                    <div className="mode-control">
+                      <span>Transport Mode</span>
+                      <div className="mode-toggle">
+                        {routeModeOptions.map((option) => (
+                          <button
+                            className={routeMode === option.value ? "active" : ""}
+                            key={option.value}
+                            type="button"
+                            onClick={() => setRouteMode(option.value)}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <label>
+                      <span>Box Size</span>
+                      <select value={containerSize} onChange={(event) => setContainerSize(Number(event.currentTarget.value))}>
+                        {containerSizeOptions.map((size) => (
+                          <option key={size} value={size}>
+                            {size ? `${size} SCU` : "自动匹配"}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label>
+                      <span>Stops</span>
+                      <select
+                        value={String(routeStopCount)}
+                        onChange={(event) =>
+                          setRouteStopCount(event.currentTarget.value === "auto" ? "auto" : clampRouteStopCount(Number(event.currentTarget.value)))
+                        }
                       >
-                        {option.label}
-                      </button>
-                    ))}
+                        <option value="auto">Auto</option>
+                        {[1, 2, 3, 4, 5, 6].map((count) => (
+                          <option key={count} value={count}>
+                            {getStopCountLabel(count)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
-                </div>
-                <label>
-                  <span>Box Size</span>
-                  <select value={containerSize} onChange={(event) => setContainerSize(Number(event.currentTarget.value))}>
-                    {containerSizeOptions.map((size) => (
-                      <option key={size} value={size}>
-                        {size ? `${size} SCU` : "自动匹配"}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  <span>Stops</span>
-                  <select
-                    value={String(routeStopCount)}
-                    onChange={(event) =>
-                      setRouteStopCount(event.currentTarget.value === "auto" ? "auto" : clampRouteStopCount(Number(event.currentTarget.value)))
-                    }
-                  >
-                    <option value="auto">Auto</option>
-                    {[1, 2, 3, 4, 5, 6].map((count) => (
-                      <option key={count} value={count}>
-                        {getStopCountLabel(count)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
 
-              <div className="planner-source-line">
-                <span>{selectedShip?.manufacturer ?? "Unknown"} / {getShipRole(selectedShip)}</span>
-                <span>{routePlanMode === "loop" ? getStopSettingLabel(routeStopCount) : "单段规划"}</span>
-                <span>{getRouteModeLabel(routeMode)}</span>
-                <span>{containerSize ? `${containerSize} SCU 箱型` : "自动箱型"}</span>
-                <span>{tradeLocationOptions.length} UEX 地点候选</span>
-                {typeof routeUpstreamCount === "number" ? <span>UEX upstream {routeUpstreamCount}</span> : null}
-                {shipsError ? <strong>{shipsError}</strong> : null}
-              </div>
+                  <div className="planner-source-line">
+                    <span>{selectedShip?.manufacturer ?? "Unknown"} / {getShipRole(selectedShip)}</span>
+                    <span>{routePlanMode === "loop" ? getStopSettingLabel(routeStopCount) : "单段规划"}</span>
+                    <span>{getRouteModeLabel(routeMode)}</span>
+                    <span>{containerSize ? `${containerSize} SCU 箱型` : "自动箱型"}</span>
+                    <span>{tradeLocationOptions.length} UEX 地点候选</span>
+                    {typeof routeUpstreamCount === "number" ? <span>UEX upstream {routeUpstreamCount}</span> : null}
+                    {shipsError ? <strong>{shipsError}</strong> : null}
+                  </div>
 
-              <StatusLine loading={routesLoading} source={routeSource} error={routesError} />
-              <div className="inventory-risk-note">
-                <strong>UEX低库存风险算法</strong>
-                <span>低：库存≥当前货仓2倍且数据较新。</span>
-                <span>中：库存够装但不足2倍，或数据旧/未公开库存。</span>
-                <span>高：库存低于当前货仓，或接近预计购买量。</span>
-                <em>UEX low-stock risk: Low means enough and fresh; Medium means limited, stale, or unknown stock; High means likely short stock.</em>
-              </div>
+                  <StatusLine loading={routesLoading} source={routeSource} error={routesError} />
+                  <div className="inventory-risk-note">
+                    <strong>UEX低库存风险算法</strong>
+                    <span>低：库存≥当前货仓2倍且数据较新。</span>
+                    <span>中：库存够装但不足2倍，或数据旧/未公开库存。</span>
+                    <span>高：库存低于当前货仓，或接近预计购买量。</span>
+                    <em>UEX low-stock risk: Low means enough and fresh; Medium means limited, stale, or unknown stock; High means likely short stock.</em>
+                  </div>
 
-              <NewPlayerRouteGuide
-                budgetUec={budgetUec}
-                cargoScu={cargoScu}
-                routeMode={routeMode}
-                routePlanMode={routePlanMode}
-                routeSource={routeSource}
-                routes={recommendationRoutes}
-                stopCount={routeStopCount}
-                selectedShip={selectedShip}
-              />
+                  <NewPlayerRouteGuide
+                    budgetUec={budgetUec}
+                    cargoScu={cargoScu}
+                    routeMode={routeMode}
+                    routePlanMode={routePlanMode}
+                    routeSource={routeSource}
+                    routes={recommendationRoutes}
+                    stopCount={routeStopCount}
+                    selectedShip={selectedShip}
+                  />
 
-              <div className="metric-strip planner-metrics">
-                <div>
-                  <strong>{routes[0] ? formatNumber(routes[0].totalProfit) : 0}</strong>
-                  <span>Best Profit UEC</span>
-                </div>
-                <div>
-                  <strong>{routes[0]?.purchasableScu ?? 0}</strong>
-                  <span>Loaded SCU</span>
-                </div>
-                <div>
-                  <strong>{routes.length}</strong>
-                  <span>Routes</span>
-                </div>
-                <div>
-                  <strong>{shipOptions.length}</strong>
-                  <span>Cargo Ships</span>
-                </div>
-              </div>
+                  <div className="metric-strip planner-metrics">
+                    <div>
+                      <strong>{routes[0] ? formatNumber(routes[0].totalProfit) : 0}</strong>
+                      <span>Best Profit UEC</span>
+                    </div>
+                    <div>
+                      <strong>{routes[0]?.purchasableScu ?? 0}</strong>
+                      <span>Loaded SCU</span>
+                    </div>
+                    <div>
+                      <strong>{routes.length}</strong>
+                      <span>Routes</span>
+                    </div>
+                    <div>
+                      <strong>{shipOptions.length}</strong>
+                      <span>Cargo Ships</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="control-grid trade-controls planner-grid sell-grid">
+                    <label className="wide-control">
+                      <span>Commodity</span>
+                      <input
+                        autoComplete="off"
+                        list="trade-commodity-suggestions"
+                        placeholder="Beryl / 绿柱石"
+                        value={sellCommodity}
+                        onChange={(event) => setSellCommodity(event.currentTarget.value)}
+                      />
+                    </label>
+                    <label>
+                      <span>Cargo SCU</span>
+                      <input
+                        min={1}
+                        type="number"
+                        value={getNumberInputValue(sellCargoScu)}
+                        onChange={(event) => setSellCargoScu(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000))}
+                      />
+                    </label>
+                    <label>
+                      <span>Buy Price / SCU</span>
+                      <input
+                        min={0}
+                        type="number"
+                        value={getNumberInputValue(sellBuyPricePerScu)}
+                        onChange={(event) => setSellBuyPricePerScu(parsePositiveNumberInput(event.currentTarget.value, 0, 0, 100000000))}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="planner-source-line">
+                    <span>UEX static prices</span>
+                    <span>{sellOptions.length} sell points</span>
+                    <span>{formatNumber(sellCargoScu)} SCU cargo</span>
+                  </div>
+
+                  <StatusLine loading={sellLoading} source={sellSource} error={sellError} />
+                  <div className="inventory-risk-note">
+                    <strong>卖货导航说明</strong>
+                    <span>按 UEX 静态价格估算 NPC 买点。</span>
+                    <span>需求未知时，按输入货量估算。</span>
+                    <em>Sell navigation uses UEX static prices. Unknown demand is estimated by your cargo amount.</em>
+                  </div>
+
+                  <div className="metric-strip planner-metrics">
+                    <div>
+                      <strong>{sellOptions[0] ? formatNumber(sellOptions[0].revenue) : 0}</strong>
+                      <span>Best Revenue UEC</span>
+                    </div>
+                    <div>
+                      <strong>{sellOptions[0] ? formatNumber(sellOptions[0].priceSell) : 0}</strong>
+                      <span>Best UEC / SCU</span>
+                    </div>
+                    <div>
+                      <strong>{sellOptions.length}</strong>
+                      <span>Sell Points</span>
+                    </div>
+                    <div>
+                      <strong>{sellOptions[0]?.demandScu ? formatNumber(sellOptions[0].demandScu) : "未知"}</strong>
+                      <span>Demand</span>
+                    </div>
+                  </div>
+                </>
+              )}
             </section>
 
             <section className="route-list">
-              {routes.map((route, routeIndex) => {
+              {tradeTool === "routes" ? routes.map((route, routeIndex) => {
                 const hasRouteLegs = (route.legs?.length ?? 0) > 1;
                 const inventoryStatus = getInventoryStatus(route, cargoScu);
 
@@ -2950,11 +3161,55 @@ export function VerseIndexApp() {
                     </div>
                   </article>
                 );
-              })}
-              {!routes.length ? (
+              }) : sellOptions.map((option, optionIndex) => (
+                <article className="route-card" key={`${option.id}-${optionIndex}`}>
+                  <header>
+                    <h2>{formatSellCommodity(option)}</h2>
+                    <span className={`freshness ${option.freshness}`}>{option.freshness}</span>
+                  </header>
+                  <p>{formatSellLocation(option)}</p>
+                  <div className="route-profit">
+                    <span>{`${formatNumber(option.acceptedScu)} / ${formatNumber(option.cargoScu)} SCU`}</span>
+                    <strong>{formatNumber(option.revenue)} UEC</strong>
+                  </div>
+                  <div className="route-detail-grid">
+                    <div>
+                      <span>Sell</span>
+                      <strong>{formatNumber(option.priceSell)} UEC/SCU</strong>
+                    </div>
+                    <div>
+                      <span>Accepted</span>
+                      <strong>{formatNumber(option.acceptedScu)} SCU</strong>
+                    </div>
+                    <div>
+                      <span>Demand</span>
+                      <strong>{option.demandScu ? `${formatNumber(option.demandScu)} SCU` : "未知"}</strong>
+                    </div>
+                    <div>
+                      <span>Net</span>
+                      <strong>{typeof option.profit === "number" ? `${formatNumber(option.profit)} UEC` : "未填买价"}</strong>
+                    </div>
+                  </div>
+                  <div className="source-row">
+                    <a href={option.sourceUrl} rel="noreferrer" target="_blank">
+                      UEX Corp API
+                    </a>
+                    {option.containerSizes?.length ? <span>{option.containerSizes.join(" / ")} SCU</span> : null}
+                    {option.gameVersion ? <span>{option.gameVersion}</span> : null}
+                    {option.sourceUpdatedAt ? <span>Updated {option.sourceUpdatedAt}</span> : null}
+                  </div>
+                </article>
+              ))}
+              {tradeTool === "routes" && !routes.length ? (
                 <article className="empty-state">
                   <h2>没有可盈利路线</h2>
                   <p>如果起点和终点相同，系统会自动尝试三角/循环航线；调高预算、货仓或放宽纯太空/箱型限制后再同步 UEX。</p>
+                </article>
+              ) : null}
+              {tradeTool === "sell" && !sellOptions.length && !sellLoading ? (
+                <article className="empty-state">
+                  <h2>没有卖点</h2>
+                  <p>换货物、减少货量，或同步 UEX。</p>
                 </article>
               ) : null}
             </section>

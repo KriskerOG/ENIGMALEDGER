@@ -313,6 +313,29 @@ h2 {
   gap: 10px;
 }
 
+.trade-subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.trade-subtabs button {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: #0d1116;
+  padding: 0 12px;
+  font-weight: 900;
+}
+
+.trade-subtabs button.active,
+.trade-subtabs button:hover {
+  border-color: rgba(214, 168, 79, 0.52);
+  color: var(--text);
+  background: rgba(214, 168, 79, 0.16);
+}
+
 .primary-action {
   min-height: 42px;
   border: 1px solid rgba(60, 200, 180, 0.52);
@@ -339,6 +362,10 @@ h2 {
 
 .planner-grid .wide-control {
   grid-column: span 1;
+}
+
+.sell-grid {
+  grid-template-columns: minmax(260px, 1.4fr) minmax(130px, 0.7fr) minmax(150px, 0.8fr);
 }
 
 .planner-row,

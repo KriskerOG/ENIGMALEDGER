@@ -105,6 +105,69 @@ interface UexCommodityRoute {
   is_on_ground_destination?: number | boolean | null;
 }
 
+interface UexCommodity {
+  id: number;
+  name?: string | null;
+  code?: string | null;
+  slug?: string | null;
+  price_sell?: number | string | null;
+  is_sellable?: number | boolean | null;
+  is_available?: number | boolean | null;
+  is_visible?: number | boolean | null;
+}
+
+interface UexCommodityPrice {
+  id?: number;
+  id_commodity?: number | string | null;
+  id_terminal?: number | string | null;
+  price_sell?: number | string | null;
+  price_sell_avg?: number | string | null;
+  price_sell_min?: number | string | null;
+  price_sell_max?: number | string | null;
+  scu_sell?: number | string | null;
+  scu_sell_avg?: number | string | null;
+  scu_sell_max?: number | string | null;
+  status_sell?: number | boolean | null;
+  container_sizes?: string | null;
+  game_version?: string | null;
+  date_modified?: number | string | null;
+  commodity_name?: string | null;
+  commodity_code?: string | null;
+  commodity_slug?: string | null;
+  star_system_name?: string | null;
+  planet_name?: string | null;
+  orbit_name?: string | null;
+  moon_name?: string | null;
+  city_name?: string | null;
+  outpost_name?: string | null;
+  poi_name?: string | null;
+  terminal_name?: string | null;
+  terminal_slug?: string | null;
+  terminal_code?: string | null;
+  terminal_is_player_owned?: number | boolean | null;
+}
+
+export interface UexSellOption {
+  id: string;
+  commodity: string;
+  commodityZh?: string;
+  terminal: string;
+  terminalZh?: string;
+  location?: string;
+  locationZh?: string;
+  priceSell: number;
+  cargoScu: number;
+  acceptedScu: number;
+  demandScu?: number;
+  revenue: number;
+  profit?: number;
+  containerSizes?: number[];
+  gameVersion?: string;
+  sourceUpdatedAt?: string;
+  freshness: FreshnessStatus;
+  sourceUrl: string;
+}
+
 interface CachedUexRoutes {
   expiresAt: number;
   originTerminal?: UexTerminal;
@@ -123,6 +186,7 @@ export interface UexTradeRoutesResult {
 
 const uexRouteCache = new Map<string, CachedUexRoutes>();
 let uexTerminalCache: CachedUexTerminals | undefined;
+let uexCommodityCache: { expiresAt: number; commodities: UexCommodity[] } | undefined;
 const aliasZhByEnglishCache = new Map<"location" | "commodity" | "any", Map<string, string>>();
 
 const manualTradeQueryAliasPairs: Array<[string, string[]]> = [
@@ -988,4 +1052,126 @@ export async function fetchUexTradeRoutesByTerminalId(
   refresh = false
 ): Promise<UexTradeRoutesResult> {
   return fetchRoutesForTerminalId(terminalId, label, refresh);
+}
+
+async function fetchUexCommodities(refresh = false): Promise<UexCommodity[]> {
+  if (!refresh && uexCommodityCache && uexCommodityCache.expiresAt > Date.now()) {
+    return uexCommodityCache.commodities;
+  }
+
+  const response = await fetchUexResource<UexCommodity[]>("commodities");
+  const commodities = asArray(response.data).filter(
+    (commodity) =>
+      Boolean(commodity.name) &&
+      isEnabled(commodity.is_available) &&
+      isEnabled(commodity.is_visible) &&
+      isEnabled(commodity.is_sellable)
+  );
+
+  uexCommodityCache = {
+    expiresAt: Date.now() + UEX_ROUTE_CACHE_TTL_MS,
+    commodities
+  };
+
+  return commodities;
+}
+
+function resolveUexCommodity(commodities: UexCommodity[], query: string): UexCommodity | undefined {
+  const candidates = [query, resolveTradeQuery(query, "commodity"), ...getTradeQueryCandidates(query, "commodity", 8)]
+    .map((candidate) => normalizeTradeAliasText(candidate))
+    .filter(Boolean);
+
+  return commodities.find((commodity) => {
+    const values = [commodity.name, commodity.code, commodity.slug].map((value) => normalizeTradeAliasText(value)).filter(Boolean);
+
+    return candidates.some((candidate) => values.some((value) => value === candidate || value.includes(candidate) || candidate.includes(value)));
+  });
+}
+
+function getSellDemandScu(price: UexCommodityPrice): number | undefined {
+  const demand = Math.max(asNumber(price.scu_sell), asNumber(price.scu_sell_avg), asNumber(price.scu_sell_max));
+
+  return demand > 0 ? Math.floor(demand) : undefined;
+}
+
+function mapUexPriceToSellOption(price: UexCommodityPrice, cargoScu: number, buyPricePerScu: number | undefined): UexSellOption | undefined {
+  const priceSell = asNumber(price.price_sell) || asNumber(price.price_sell_avg) || asNumber(price.price_sell_max);
+
+  if (!price.commodity_name || !price.terminal_name || priceSell <= 0 || price.terminal_is_player_owned) {
+    return undefined;
+  }
+
+  if (price.status_sell !== undefined && price.status_sell !== null && !isEnabled(price.status_sell)) {
+    return undefined;
+  }
+
+  const demandScu = getSellDemandScu(price);
+  const acceptedScu = Math.max(0, Math.min(Math.floor(cargoScu), demandScu ?? Math.floor(cargoScu)));
+
+  if (acceptedScu <= 0) {
+    return undefined;
+  }
+
+  const location = buildLocationTrail(
+    price.star_system_name,
+    price.planet_name ?? price.moon_name ?? price.city_name,
+    price.orbit_name ?? price.outpost_name ?? price.poi_name
+  );
+  const sourceUpdatedAt = toIsoDateFromUnixSeconds(price.date_modified);
+  const revenue = acceptedScu * priceSell;
+
+  return {
+    id: `uex-sell-${price.id ?? price.id_terminal ?? price.terminal_slug}`,
+    commodity: price.commodity_name,
+    commodityZh: localizeCompositeName(price.commodity_name, "commodity"),
+    terminal: price.terminal_name,
+    terminalZh: localizeCompositeName(price.terminal_name, "location"),
+    location: location || undefined,
+    locationZh: localizeLocationTrail(location),
+    priceSell,
+    cargoScu,
+    acceptedScu,
+    demandScu,
+    revenue,
+    profit: buyPricePerScu && buyPricePerScu > 0 ? revenue - acceptedScu * buyPricePerScu : undefined,
+    containerSizes: parseContainerSizes(price.container_sizes),
+    gameVersion: price.game_version ?? undefined,
+    sourceUpdatedAt,
+    freshness: getFreshness(sourceUpdatedAt),
+    sourceUrl: price.commodity_slug
+      ? `https://uexcorp.space/commodities/info/name/${price.commodity_slug}`
+      : "https://uexcorp.space/api/documentation/id/get_commodities_prices/"
+  };
+}
+
+export async function fetchUexSellOptions(input: {
+  commodity: string;
+  cargoScu: number;
+  buyPricePerScu?: number;
+  limit?: number;
+  refresh?: boolean;
+}): Promise<{ commodity?: UexCommodity; options: UexSellOption[] }> {
+  const cargoScu = Math.max(1, Math.floor(input.cargoScu));
+  const limit = Math.min(Math.max(input.limit ?? 50, 1), 100);
+  const commodities = await fetchUexCommodities(input.refresh);
+  const commodity = resolveUexCommodity(commodities, input.commodity.trim());
+
+  if (!commodity?.id && !commodity?.name) {
+    throw new Error(`UEX commodity not found: ${input.commodity}`);
+  }
+
+  const commodityParams: Record<string, string | number | boolean | undefined> = commodity.id
+    ? { id_commodity: commodity.id }
+    : { commodity_name: commodity.name ?? input.commodity };
+  const response = await fetchUexResource<UexCommodityPrice[]>("commodities_prices", commodityParams);
+  const options = asArray(response.data)
+    .map((price) => mapUexPriceToSellOption(price, cargoScu, input.buyPricePerScu))
+    .filter((option): option is UexSellOption => Boolean(option))
+    .sort((left, right) => right.priceSell - left.priceSell || right.revenue - left.revenue)
+    .slice(0, limit);
+
+  return {
+    commodity,
+    options
+  };
 }
