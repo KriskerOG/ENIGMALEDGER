@@ -2472,18 +2472,22 @@ button:focus-visible {
 
 .kook-link {
   display: inline-flex;
-  min-height: 34px;
+  min-height: 42px;
   align-items: center;
-  border: 1px solid rgba(214, 168, 79, 0.52);
+  justify-content: center;
+  border: 1px solid rgba(214, 168, 79, 0.58);
   color: var(--gold);
-  padding: 0 12px;
+  background: linear-gradient(180deg, rgba(214, 168, 79, 0.24), rgba(214, 168, 79, 0.1));
+  padding: 0 16px;
   font-weight: 900;
   text-decoration: none;
+  box-shadow: 0 0 22px rgba(214, 168, 79, 0.12);
 }
 
 .kook-link:hover {
-  border-color: rgba(214, 168, 79, 0.86);
-  color: var(--text);
+  border-color: rgba(244, 205, 128, 0.82);
+  color: #f4cd80;
+  background: linear-gradient(180deg, rgba(214, 168, 79, 0.34), rgba(214, 168, 79, 0.16));
 }
 
 .charter-grid {
@@ -3048,14 +3052,16 @@ button:focus-visible {
   z-index: 2;
   right: 54px;
   bottom: 28px;
-  padding: 9px 12px;
-  border: 1px solid rgba(247, 205, 116, 0.34);
-  color: #eac061;
-  background: rgba(8, 10, 14, 0.48);
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(214, 168, 79, 0.58);
+  color: var(--gold);
+  background: linear-gradient(180deg, rgba(214, 168, 79, 0.24), rgba(214, 168, 79, 0.1));
   font-size: 13px;
   font-weight: 900;
   text-transform: uppercase;
   cursor: pointer;
+  box-shadow: 0 0 22px rgba(214, 168, 79, 0.12);
 }
 
 @container (max-width: 1180px) {
@@ -3094,8 +3100,9 @@ button:focus-visible {
 
 .charter-scroll-toggle:hover,
 .charter-scroll-toggle:focus-visible {
-  border-color: rgba(247, 205, 116, 0.78);
-  color: #fff0c7;
+  border-color: rgba(244, 205, 128, 0.82);
+  color: #f4cd80;
+  background: linear-gradient(180deg, rgba(214, 168, 79, 0.34), rgba(214, 168, 79, 0.16));
 }
 
 .charter-scroll.is-open .charter-scroll-toggle {
